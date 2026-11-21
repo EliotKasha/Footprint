@@ -420,7 +420,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 76dadecb6255c2e47b33c9cb6ea5560b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SoccerReplay.ReplayController
-  matchFile: matches/match_events_v4.json
+  matchFile: matches/match_events_v5.json
   origin: 0
   flipY: 1
   minTrackSamples: 8
@@ -431,10 +431,12 @@ MonoBehaviour:
   fadeTime: 0.25
   playerMaxGap: 1
   ballMaxGap: 1
+  useFittedFlights: 1
   homeColor: {r: 0.85, g: 0.15, b: 0.15, a: 1}
   awayColor: {r: 0.15, g: 0.35, b: 0.9, a: 1}
   homeKeeperColor: {r: 1, g: 0.85, b: 0.1, a: 1}
   awayKeeperColor: {r: 0.95, g: 0.3, b: 0.85, a: 1}
+  useKitColors: 1
   bodyMotion:
     velocityWindow: 0.3
     speedSmooth: 0.15
@@ -454,6 +456,7 @@ MonoBehaviour:
   keeperMaxSpeed: 3
   keeperMinDepth: 3
   keeperMaxDepth: 12
+  keeperMaxDistanceFromGoal: 25
   showLabels: 1
   speed: 1
   loop: 1
