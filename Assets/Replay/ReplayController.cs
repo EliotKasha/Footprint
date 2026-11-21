@@ -44,6 +44,9 @@ namespace SoccerReplay
         public Color homeKeeperColor = new Color(1f, 0.85f, 0.1f);
         public Color awayKeeperColor = new Color(0.95f, 0.3f, 0.85f);
 
+        [Header("Body motion")]
+        public BodyMotionSettings bodyMotion = new BodyMotionSettings();
+
         [Header("Goalkeepers")]
         [Tooltip("Always show both keepers, estimating their position when the CV doesn't see them")]
         public bool estimateKeepers = true;
@@ -69,12 +72,12 @@ namespace SoccerReplay
             public int team;
             public int side;        // -1 defends the goal at x = -length/2, +1 the goal at +length/2
             public Track track;     // null when the CV never saw this keeper
-            public Transform go;
-            public Material mat;
+            public PlayerBody body;
+            public Material mat, trimMat;
             public Color color;
             public TextMeshPro label;
             public Vector2 smoothedEstimate;
-            public Vector2 displayPos;
+            public Vector2 displayPos, prevDisplayPos, vel;
             public float realWeight; // 1 = fully tracked, 0 = fully estimated
         }
         readonly List<Keeper> keepers = new List<Keeper>();
@@ -93,7 +96,9 @@ namespace SoccerReplay
 
         Camera cam;
         Transform ballGo;
-        readonly List<(Track track, Transform go, Transform label)> players = new List<(Track, Transform, Transform)>();
+        readonly List<(Track track, PlayerBody body)> players = new List<(Track, PlayerBody)>();
+        float motionDt;          // replay time elapsed this frame (0 while paused)
+        bool motionSnap = true;  // jump bodies straight to their state (after seeks / loops)
         int visibleCount;
         bool ballVisible;
         Vector2 lastBall;
@@ -105,7 +110,6 @@ namespace SoccerReplay
         Transform ownerRing;
         LineRenderer passLine;
         readonly Dictionary<int, List<Transform>> actorsById = new Dictionary<int, List<Transform>>();
-        static readonly Vector3 PlayerScale = new Vector3(0.7f, 0.9f, 0.7f);
 
         void RegisterActor(int id, Transform t)
         {
@@ -169,6 +173,8 @@ namespace SoccerReplay
             var refMat = PitchBuilder.MakeMaterial(new Color(0.08f, 0.08f, 0.09f));
             var homeGkMat = PitchBuilder.MakeMaterial(homeKeeperColor);
             var awayGkMat = PitchBuilder.MakeMaterial(awayKeeperColor);
+            var trimMat = PitchBuilder.MakeMaterial(new Color(0.95f, 0.95f, 0.95f));
+            var refTrimMat = PitchBuilder.MakeMaterial(new Color(1f, 0.85f, 0.1f));
             var actors = new GameObject("Players").transform;
             actors.SetParent(transform, false);
 
@@ -179,28 +185,10 @@ namespace SoccerReplay
                         : tr.goalkeeper ? (tr.team == 1 ? awayGkMat : homeGkMat)
                         : (tr.team == 1 ? awayMat : homeMat);
                 string kind = tr.referee ? "Referee" : tr.goalkeeper ? "GK" : "Player";
-                var body = PitchBuilder.Primitive(PrimitiveType.Capsule, $"{kind} {tr.id}", actors, mat);
-                body.transform.localScale = new Vector3(0.7f, 0.9f, 0.7f); // ~1.8m tall
-
-                Transform label = null;
-                if (showLabels)
-                {
-                    var lgo = new GameObject("Label");
-                    lgo.transform.SetParent(body.transform, false);
-                    lgo.transform.localPosition = new Vector3(0f, 1.6f, 0f);
-                    lgo.transform.localScale = new Vector3(1f / 0.7f, 1f / 0.9f, 1f / 0.7f); // undo body scale
-                    var tmp = lgo.AddComponent<TextMeshPro>();
-                    tmp.text = tr.referee ? "REF" : tr.id.ToString();
-                    tmp.fontSize = 8;
-                    tmp.alignment = TextAlignmentOptions.Center;
-                    tmp.color = Color.white;
-                    tmp.outlineWidth = 0.25f;
-                    tmp.outlineColor = Color.black;
-                    tmp.rectTransform.sizeDelta = new Vector2(4f, 2f);
-                    label = lgo.transform;
-                }
+                var body = PlayerBody.Create($"{kind} {tr.id}", actors, mat, tr.referee ? refTrimMat : trimMat,
+                                             tr.referee ? "REF" : tr.id.ToString(), showLabels);
                 body.SetActive(false);
-                players.Add((tr, body.transform, label));
+                players.Add((tr, body));
             }
 
             if (estimateKeepers) BuildKeepers(actors);
@@ -245,8 +233,8 @@ namespace SoccerReplay
             passLine.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             passLine.enabled = false;
 
-            foreach (var (track, go, _) in players) RegisterActor(track.id, go);
-            foreach (var k in keepers) if (k.track != null) RegisterActor(k.track.id, k.go);
+            foreach (var (track, body) in players) RegisterActor(track.id, body.root);
+            foreach (var k in keepers) if (k.track != null) RegisterActor(k.track.id, k.body.root);
         }
 
         void BuildKeepers(Transform parent)
@@ -285,21 +273,9 @@ namespace SoccerReplay
                     color = team == 0 ? homeKeeperColor : awayKeeperColor,
                 };
                 k.mat = PitchBuilder.MakeTransparentMaterial(k.color);
-                var body = PitchBuilder.Primitive(PrimitiveType.Capsule, $"Keeper team {team}", parent, k.mat);
-                body.transform.localScale = new Vector3(0.7f, 0.9f, 0.7f);
-                k.go = body.transform;
-
-                var lgo = new GameObject("Label");
-                lgo.transform.SetParent(body.transform, false);
-                lgo.transform.localPosition = new Vector3(0f, 1.6f, 0f);
-                lgo.transform.localScale = new Vector3(1f / 0.7f, 1f / 0.9f, 1f / 0.7f);
-                k.label = lgo.AddComponent<TextMeshPro>();
-                k.label.fontSize = 8;
-                k.label.alignment = TextAlignmentOptions.Center;
-                k.label.outlineWidth = 0.25f;
-                k.label.outlineColor = Color.black;
-                k.label.rectTransform.sizeDelta = new Vector2(6f, 2f);
-                k.label.gameObject.SetActive(showLabels);
+                k.trimMat = PitchBuilder.MakeTransparentMaterial(new Color(0.12f, 0.12f, 0.15f));
+                k.body = PlayerBody.Create($"Keeper team {team}", parent, k.mat, k.trimMat, "", showLabels);
+                k.label = k.body.label;
 
                 keepers.Add(k);
                 Debug.Log($"[Replay] Team {team} keeper defends the {(k.side < 0 ? "west (-x)" : "east (+x)")} goal, " +
@@ -375,11 +351,26 @@ namespace SoccerReplay
                 }
 
                 k.realWeight = w;
-                k.go.localPosition = new Vector3(k.displayPos.x, 0.9f, k.displayPos.y);
+
+                // Keeper velocity from how the displayed position actually moves (smoothed)
+                if (snapKeepers || dt <= 0f)
+                {
+                    if (snapKeepers) k.vel = Vector2.zero;
+                }
+                else
+                {
+                    var inst = (k.displayPos - k.prevDisplayPos) / dt;
+                    k.vel = Vector2.Lerp(k.vel, inst, 1f - Mathf.Exp(-6f * dt));
+                }
+                k.prevDisplayPos = k.displayPos;
+                k.body.UpdateMotion(k.displayPos, k.vel, ball, 1f, dt, snapKeepers, bodyMotion);
 
                 var c = k.color;
                 c.a = Mathf.Lerp(estimatedAlpha, 1f, w);
                 k.mat.color = c;
+                var tc = k.trimMat.color;
+                tc.a = c.a;
+                k.trimMat.color = tc;
                 if (k.label != null)
                 {
                     k.label.text = w > 0.5f ? $"GK {k.track.id}" : "GK (est.)";
@@ -394,18 +385,20 @@ namespace SoccerReplay
             if (data == null) return;
             HandleInput();
 
+            motionDt = playing ? Time.deltaTime * speed : 0f;
             if (playing)
             {
-                time += Time.deltaTime * speed;
+                time += motionDt;
                 if (time > data.endTime)
                 {
-                    if (loop) time = data.startTime;
+                    if (loop) { time = data.startTime; motionSnap = true; snapKeepers = true; }
                     else { time = data.endTime; playing = false; }
                 }
             }
             ApplyTime();
-            UpdateKeepers(playing ? Time.deltaTime * speed : 0f);
+            UpdateKeepers(motionDt);
             UpdatePossessionAndPasses();
+            motionSnap = false;
         }
 
         void HandleInput()
@@ -427,10 +420,13 @@ namespace SoccerReplay
         {
             if (data == null) return;
             time = Mathf.Clamp(t, data.startTime, data.endTime);
+            motionSnap = true;
+            motionDt = 0f;
             ApplyTime();
             snapKeepers = true;
             UpdateKeepers(0f);
             UpdatePossessionAndPasses();
+            motionSnap = false;
             if (cam != null) SnapCamera();
         }
 
@@ -447,13 +443,18 @@ namespace SoccerReplay
         void ApplyTime()
         {
             visibleCount = 0;
-            foreach (var (track, go, _) in players)
+
+            // Ball first, so players can turn to face its current position
+            if (data.ball.Count > 0 && data.ball.TrySample(time, ballMaxGap, out var ballNow)) { lastBall = ballNow; ballVisible = true; }
+            else ballVisible = false;
+
+            foreach (var (track, body) in players)
             {
                 bool vis = track.TrySample(time, playerMaxGap, out var p);
-                if (go.gameObject.activeSelf != vis) go.gameObject.SetActive(vis);
+                bool justAppeared = vis && !body.Active;
+                body.SetActive(vis);
                 if (!vis) continue;
                 if (!track.referee) visibleCount++;
-                go.localPosition = new Vector3(p.x, 0.9f, p.y);
 
                 // Grow in / shrink out at the ends of a track instead of popping
                 // (except at the very start/end of the clip, where tracks are simply cut off)
@@ -465,10 +466,11 @@ namespace SoccerReplay
                     fade = Mathf.Clamp01(Mathf.Min(fin, fout));
                     fade = fade * fade * (3f - 2f * fade);
                 }
-                go.localScale = PlayerScale * Mathf.Max(0.001f, fade);
+
+                Vector2 vel = track.VelocityAt(time, bodyMotion.velocityWindow);
+                body.UpdateMotion(p, vel, lastBall, fade, motionDt, motionSnap || justAppeared, bodyMotion);
             }
 
-            ballVisible = data.ball.Count > 0 && data.ball.TrySample(time, ballMaxGap, out lastBall);
             if (ballGo.gameObject.activeSelf != ballVisible) ballGo.gameObject.SetActive(ballVisible);
             if (ballVisible)
             {
@@ -535,8 +537,8 @@ namespace SoccerReplay
             cam.transform.rotation = Quaternion.Slerp(cam.transform.rotation, targetRot, k);
 
             // Billboard labels toward the camera
-            foreach (var (_, go, label) in players)
-                if (label != null && go.gameObject.activeSelf) label.rotation = cam.transform.rotation;
+            foreach (var (_, body) in players)
+                if (body.Active && body.label != null) body.label.transform.rotation = cam.transform.rotation;
             foreach (var keeper in keepers)
                 if (keeper.label != null) keeper.label.transform.rotation = cam.transform.rotation;
         }

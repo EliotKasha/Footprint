@@ -238,6 +238,19 @@ namespace SoccerReplay
             return Mathf.Min(t - times[i], times[i + 1] - t);
         }
 
+        /// <summary>
+        /// Velocity (m/s) measured across a window centered on t. Centered rather than backward-looking,
+        /// so motion doesn't lag the data. Near the ends of the track the window shrinks to stay inside it.
+        /// </summary>
+        public Vector2 VelocityAt(float t, float window)
+        {
+            if (Count < 2) return Vector2.zero;
+            float h = window * 0.5f;
+            float a = Mathf.Max(Start, t - h), b = Mathf.Min(End, t + h);
+            if (b - a < 1e-3f) return Vector2.zero;
+            return (SampleClamped(b) - SampleClamped(a)) / (b - a);
+        }
+
         public float AverageX()
         {
             float s = 0f;
