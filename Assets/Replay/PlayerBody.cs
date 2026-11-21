@@ -34,6 +34,17 @@ namespace SoccerReplay
         public Transform lean;
         public TextMeshPro label;
         public Material bodyMat, trimMat;
+        Renderer bodyRenderer, stripeRenderer, shortsRenderer;
+        public static Material SharedShortsMaterial => shortsMat;
+
+        /// <summary>Swap materials (e.g. solid when tracked, see-through when estimated). Null shorts keeps the shared solid one.</summary>
+        public void SetLook(Material body, Material trim, Material shorts = null)
+        {
+            if (bodyRenderer.sharedMaterial != body) bodyRenderer.sharedMaterial = body;
+            if (stripeRenderer.sharedMaterial != trim) stripeRenderer.sharedMaterial = trim;
+            var s = shorts != null ? shorts : shortsMat;
+            if (shortsRenderer.sharedMaterial != s) shortsRenderer.sharedMaterial = s;
+        }
 
         float speed, speedVel, yaw, phase;
         float leanPitch, leanRoll;
@@ -56,17 +67,20 @@ namespace SoccerReplay
             var body = PitchBuilder.Primitive(PrimitiveType.Capsule, "Body", b.lean, bodyMat);
             body.transform.localPosition = new Vector3(0f, Height / 2f, 0f);
             body.transform.localScale = new Vector3(0.7f, Height / 2f, 0.7f);
+            b.bodyRenderer = body.GetComponent<Renderer>();
 
             // Chest stripe on the front: makes facing direction readable from any camera
             var stripe = PitchBuilder.Primitive(PrimitiveType.Cube, "Chest", b.lean, trimMat);
             stripe.transform.localPosition = new Vector3(0f, 1.32f, 0.31f);
             stripe.transform.localScale = new Vector3(0.36f, 0.11f, 0.12f);
+            b.stripeRenderer = stripe.GetComponent<Renderer>();
 
             // Shorts band around the hips
             if (shortsMat == null) shortsMat = PitchBuilder.MakeMaterial(new Color(0.1f, 0.1f, 0.14f));
             var shorts = PitchBuilder.Primitive(PrimitiveType.Cylinder, "Shorts", b.lean, shortsMat);
             shorts.transform.localPosition = new Vector3(0f, 0.78f, 0f);
             shorts.transform.localScale = new Vector3(0.72f, 0.13f, 0.72f);
+            b.shortsRenderer = shorts.GetComponent<Renderer>();
 
             var lgo = new GameObject("Label");
             lgo.transform.SetParent(b.root, false);

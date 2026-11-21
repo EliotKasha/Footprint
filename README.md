@@ -11,15 +11,23 @@ The CV pipeline outputs `match_events.json` (players, ball, possession, passes a
 **Controls:** Space play/pause · ←/→ skip 1 s · `[` `]` speed (0.25×–4×) · `1` `2` `3` broadcast / top-down / follow-ball camera · `R` restart.
 The bar at the bottom has the same controls plus a timeline slider. The top-left panel is a live event feed.
 
-**Loading a new CV output:** copy the JSON into `Assets/StreamingAssets/matches/`, select the `Replay` object and set **Match File**. The current one is `matches/match_events_v4.json`.
+**Loading a new CV output:** copy the JSON into `Assets/StreamingAssets/matches/`, select the `Replay` object and set **Match File**. The current one is `matches/match_events_v5.json`.
 
 ## What's been built
 
 ### Replay
 - Loads the CV team's JSON (any frame rate). Positions are in meters, and center or corner origin is detected (or read from `pitch.origin`).
 - **Flip Y** mirrors the pitch top to bottom. It's on for the current data, because the CV y axis points the other way.
-- Players are team-colored, labeled with their tracking ID, and smoothly interpolated. **Referees** are drawn in black ("REF").
+- Players wear the **real kit colors** from the file's `teams` block (falls back to red and blue), with a chest stripe that contrasts with each kit. They're labeled with their tracking ID and smoothly interpolated. **Referees** are drawn in black ("REF").
 - **Goalkeepers:** solid when tracked. When off camera they're semi-transparent ("GK (est.)"), stay near where they were last or next seen, and are capped at walking speed. A keeper the camera never sees is estimated from the ball's position.
+- **Keeper validation:** each team's goal is decided from the keeper with the most data. A track labeled goalkeeper that averages more than 25 m from its own goal is treated as a misclassified outfield player.
+
+### Off-camera players
+Broadcast footage only shows part of the pitch, so players drop in and out of the data. The replay keeps them on the pitch:
+- **Tracks are joined into people:** a same-team track that starts within 8 s of another ending, close enough to have run there unseen, is treated as the same person. On the current clip, 60 tracks become 42 people.
+- **Estimated players are drawn see-through with no number.** Between two sightings they glide from the last-seen to the next-seen position. Before the first or after the last sighting they stay near that spot and move with their team's overall shape, for up to 8 s.
+- At most **10 outfield players per team** are shown. When there are more estimates, the ones closest in time to a real sighting win, and changes fade instead of popping.
+- Tunable under **Off-camera players** on the `Replay` object (see-through amount, hold time, team follow, join gap and speed). This is a first version and still needs tuning.
 
 ### Players' body motion
 - Each player has a chest stripe (shows facing) and a shorts band.
@@ -28,7 +36,7 @@ The bar at the bottom has the same controls plus a timeline slider. The top-left
 
 ### Ball and events
 - Ball with height and a ground shadow, and a **possession ring** under the player on the ball (`owner`).
-- **Fitted ball flights** (`ball_flights`): during a flight the ball follows the smooth arc (a straight ground track plus a parabola for height) instead of noisy per-frame points, so high balls never jitter. It touches the grass exactly at takeoff and landing.
+- **Fitted ball flights** (`ball_flights`): during a flight the ball follows the smooth arc (a straight ground track plus a parabola for height) instead of noisy per-frame points, so high balls never jitter. It starts on the grass and ends at `end_height`: 0 for a landing, above 0 for a header or volley.
 - **Pass arcs:** white = completed, red = failed, amber = loose lofted ball (`aerial_ball`).
 - **Event feed** of passes, touches and balls in the air.
 
@@ -57,14 +65,15 @@ Almost everything is tunable on the `Replay` object's Inspector: Data cleanup, B
 | `Assets/Replay/PitchBuilder.cs` | Pitch, markings and goals |
 | `Assets/Replay/StadiumBuilder.cs` | Stands, roof, crowd, ad boards, lighting and post-processing |
 | `Assets/Replay/Editor/ReplaySceneSetup.cs` | **Soccer Replay** menu that builds the scene |
-| `Assets/StreamingAssets/matches/` | CV outputs used for testing (`match_events_v4.json` is the latest) |
+| `Assets/StreamingAssets/matches/` | CV outputs used for testing (`match_events_v5.json` is the latest) |
 | `docs/plan.md` | Original weekend plan |
 
 ## Data format (CV output → Unity)
 ```jsonc
 {
   "pitch": { "length": 105, "width": 68, "origin": "center" },
-  "fps": 29.99,
+  "teams": { "0": { "kit_hex": "#a0adba" }, "1": { "kit_hex": "#303f56" } },   // optional kit colors
+  "fps": 14.99,
   "frames": [
     { "t": 0.0,
       "players": [ { "id": 7, "team": 0, "role": "player", "x": -12.5, "y": 4.2, "interp": false } ],
@@ -78,7 +87,8 @@ Almost everything is tunable on the `Replay` object's Inspector: Data cleanup, B
     { "type": "aerial_ball", "t_start": 28.6, "t_end": 30.5, "player": null, "start": [x, y], "end": [x, y], "max_height": 4.1 }
   ],
   "ball_flights": [
-    { "t_takeoff": 31.37, "t_land": 32.84, "max_height": 2.42, "start": [x, y], "land": [x, y], "method": "3d", "kind": "free ball" }
+    { "t_takeoff": 28.67, "t_land": 31.14, "max_height": 7.24, "end_height": 0.0, "start": [x, y], "land": [x, y],
+      "speed_ms": 14.3, "from": 37, "team": 1, "method": "3d bridge", "kind": "pass" }
   ]
 }
 ```
@@ -86,7 +96,8 @@ Almost everything is tunable on the `Replay` object's Inspector: Data cleanup, B
 - Unknown extra fields (`H`, `view_polygon`, `calib`, `stats`, …) are ignored safely.
 
 ## Notes for the CV side
-- **Keep team numbering consistent between versions.** Team 0/1 flipped between two exports of the same clip, which swaps kit colors.
+- **Kit colors** (`teams.kit_hex`) are used directly, so colors now follow the real kits. Please keep exporting them.
+- **Role classifier:** in `match_events_v5`, track 58 is labeled goalkeeper while playing about 25–35 m from the wrong goal. The replay treats it as an outfield player.
 - **Confirm the y-axis direction.** The replay currently needs Flip Y.
 - **`ball_flights`:** a few fits are too short for their height (e.g. 2.95 m in 0.67 s implies about 5× gravity). Adding takeoff and landing heights (`start_z`, `land_z`) or a launch velocity would let headers and volleys be drawn exactly instead of snapping to the ground.
 - ID stability and camera calibration (still "coasting" most frames) are the biggest remaining accuracy factors.
