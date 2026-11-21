@@ -61,22 +61,33 @@ namespace SoccerReplay
     public class BallFlight
     {
         public float t_takeoff, t_land, max_height;
+        public float end_height;      // height when the flight ends (0 = lands; >0 = header/volley/catch)
         public float[] start, land;   // ground positions [x, y]
-        public string method, kind;   // e.g. "3d" / "estimated", "free ball"
+        public string method, kind;   // e.g. "3d" / "estimated", "free ball" / "pass"
         public float fit_px;          // fit error in pixels (3d flights)
+        public float speed_ms;        // launch speed
+        public int from = -1, team = -1;
 
         public float Duration => t_land - t_takeoff;
         public bool Contains(float t) => t >= t_takeoff && t <= t_land && Duration > 0.01f;
 
         /// <summary>
         /// Position on the arc: straight-line ground track at constant speed, and a parabola in time
-        /// for height (what gravity produces), touching the ground exactly at takeoff and landing.
+        /// for height (what gravity produces) that starts on the ground, peaks at max_height and
+        /// ends at end_height (0 for a normal landing).
         /// </summary>
         public void Sample(float t, out Vector2 ground, out float height)
         {
             float u = Mathf.Clamp01((t - t_takeoff) / Duration);
             ground = Vector2.Lerp(new Vector2(start[0], start[1]), new Vector2(land[0], land[1]), u);
-            height = 4f * max_height * u * (1f - u);
+
+            // z(u) = a·u² + b·u with z(0)=0, z(1)=e and a peak of H:
+            // a = e − 2H − 2·√(H·(H−e)), b = e − a   (reduces to 4H·u·(1−u) when e = 0)
+            float H = Mathf.Max(max_height, 0f);
+            float e = Mathf.Clamp(end_height, 0f, H);
+            float a = e - 2f * H - 2f * Mathf.Sqrt(H * (H - e));
+            float b = e - a;
+            height = Mathf.Max(0f, a * u * u + b * u);
         }
     }
 
@@ -327,6 +338,9 @@ namespace SoccerReplay
         public bool ballHasHeight;
         public List<MatchEvent> events = new List<MatchEvent>();
         public List<BallFlight> flights = new List<BallFlight>();
+        /// <summary>Kit colors from the file's "teams" block (team 0, team 1), if present.</summary>
+        public bool hasKitColors;
+        public Color[] kitColors = { Color.red, Color.blue };
         float[] frameTimes;
 
         /// <summary>The fitted flight the ball is on at time t, or null.</summary>
@@ -372,6 +386,15 @@ namespace SoccerReplay
             if (file == null || file.frames == null || file.frames.Count == 0)
                 throw new Exception("Match file has no frames.");
 
+            // "teams": {"0": {"kit_hex": "#a0adba", ...}, "1": {...}} — a dictionary JsonUtility can't read,
+            // so pull the kit colors out directly. Only the kit block has kit_hex inside the braces.
+            var kits = new Color?[2];
+            for (int team = 0; team < 2; team++)
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(json, "\"" + team + "\"\\s*:\\s*\\{[^{}]*\"kit_hex\"\\s*:\\s*\"(#[0-9a-fA-F]{6})\"");
+                if (m.Success && ColorUtility.TryParseHtmlString(m.Groups[1].Value, out var c)) kits[team] = c;
+            }
+
             var data = new MatchReplayData
             {
                 length = file.pitch != null && file.pitch.length > 0 ? file.pitch.length : 105f,
@@ -380,6 +403,11 @@ namespace SoccerReplay
                 startTime = file.frames[0].t,
                 endTime = file.frames[file.frames.Count - 1].t,
             };
+            if (kits[0].HasValue && kits[1].HasValue)
+            {
+                data.hasKitColors = true;
+                data.kitColors = new[] { kits[0].Value, kits[1].Value };
+            }
 
             // Decide where (0,0) is. Corner-origin data has x values well past half the pitch length.
             string declared = file.pitch?.origin?.ToLowerInvariant();

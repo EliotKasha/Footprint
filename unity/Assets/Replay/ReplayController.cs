@@ -46,8 +46,68 @@ namespace SoccerReplay
         public Color homeKeeperColor = new Color(1f, 0.85f, 0.1f);
         public Color awayKeeperColor = new Color(0.95f, 0.3f, 0.85f);
 
+        [Tooltip("Use the kit colors from the file's \"teams\" block when it has one")]
+        public bool useKitColors = true;
+
+        [Header("Off-camera players")]
+        [Tooltip("Keep showing outfield players while they're off camera, estimated and drawn see-through (like the keepers)")]
+        public bool estimateOffscreenPlayers = true;
+        [Tooltip("Longest gap (s) between two tracks that can still be joined as the same player")]
+        public float stitchMaxGap = 8f;
+        [Tooltip("Speed (m/s) a player could plausibly cover while unseen; used to decide whether two tracks can be the same person")]
+        public float stitchRunSpeed = 7f;
+        [Tooltip("How long (s) to keep showing a player before their first / after their last sighting")]
+        public float ghostHoldTime = 8f;
+        [Tooltip("How much an unseen player moves with their team's overall shape (0 = stands still)")]
+        [Range(0f, 1f)] public float ghostTeamFollow = 0.6f;
+        [Tooltip("Furthest (m) an unseen player drifts from where they were last/next seen")]
+        public float ghostMaxDrift = 10f;
+        [Tooltip("Never show more than this many outfield players per team (real + estimated)")]
+        public int maxOutfieldPerTeam = 10;
+        [Tooltip("Top speed (m/s) of an estimated player's displayed position")]
+        public float ghostMaxSpeed = 8f;
+        [Tooltip("Seconds over which a player fades between solid (tracked) and see-through (estimated)")]
+        public float ghostBlendTime = 1f;
+        [Range(0.1f, 1f)] public float ghostAlpha = 0.4f;
+
+        class Identity
+        {
+            public readonly List<Track> pieces = new List<Track>();   // same person, in time order
+            public int team;
+            public bool referee;
+            public PlayerBody body;
+            public Material solidMat, solidTrim, ghostMat, ghostTrim, ghostShorts;
+            public Color color, trimColor;
+            public Vector2 target, displayPos, prevDisplayPos, vel;
+            public Track currentPiece;     // piece being tracked right now (null when estimated)
+            public bool real, candidate;   // tracked now / worth showing as an estimate
+            public float confidence;       // seconds to the nearest real sighting (0 when tracked)
+            public float realWeight;       // 1 = solid, 0 = fully see-through
+            public float presence;         // 0..1 fade for appearing / being culled
+        }
+        readonly List<Identity> identities = new List<Identity>();
+        int estimatedCount;
+        float[][] centroidX, centroidY;
+        const float CentroidStep = 0.1f;
+
+        [Header("Animated players")]
+        [Tooltip("Use the animated humanoid model instead of capsules")]
+        public bool useAnimatedPlayers = true;
+        [Tooltip("Humanoid character model (Y Bot)")]
+        public GameObject playerModel;
+        [Tooltip("Animator for outfield players and referees (idle + 8-direction jog blend tree)")]
+        public RuntimeAnimatorController playerAnimator;
+        [Tooltip("Animator for goalkeepers (goalkeeper idle); falls back to the player animator")]
+        public RuntimeAnimatorController keeperAnimator;
+
+        GameObject ModelOrNull => useAnimatedPlayers && playerModel != null && playerAnimator != null ? playerModel : null;
+        RuntimeAnimatorController KeeperController => keeperAnimator != null ? keeperAnimator : playerAnimator;
+
         [Header("Body motion")]
         public BodyMotionSettings bodyMotion = new BodyMotionSettings();
+
+        // Team colors actually used this session (kit colors from the file, or homeColor/awayColor)
+        Color team0Color, team1Color;
 
         [Header("Goalkeepers")]
         [Tooltip("Always show both keepers, estimating their position when the CV doesn't see them")]
@@ -68,6 +128,14 @@ namespace SoccerReplay
         [Tooltip("Distance off the goal line when the ball is near / far (meters)")]
         public float keeperMinDepth = 3f;
         public float keeperMaxDepth = 12f;
+        [Tooltip("A 'goalkeeper' whose average position is further than this from his own goal line is treated as a misclassified outfield player")]
+        public float keeperMaxDistanceFromGoal = 25f;
+
+        // Keeper plan (decided before players are built)
+        readonly HashSet<Track> keeperPieces = new HashSet<Track>();
+        readonly Track[] keeperTrackByTeam = new Track[2];
+        int plannedHomeSide = -1;
+        int rejectedKeepers;
 
         class Keeper
         {
@@ -159,9 +227,14 @@ namespace SoccerReplay
             Debug.Log($"[Replay] Cleanup: {data.cameraShiftsCorrected} camera-jump frames corrected, " +
                       $"{data.spikesRemoved} glitch samples removed, {data.idSwapsSplit} ID swaps split");
 
+            bool kits = useKitColors && data.hasKitColors;
+            team0Color = kits ? data.kitColors[0] : homeColor;
+            team1Color = kits ? data.kitColors[1] : awayColor;
+            if (kits) Debug.Log($"[Replay] Using kit colors from file: team 0 #{ColorUtility.ToHtmlStringRGB(team0Color)}, team 1 #{ColorUtility.ToHtmlStringRGB(team1Color)}");
+
             PitchBuilder.Build(transform, data.length, data.width);
             stadium = GetComponent<StadiumBuilder>();
-            if (stadium != null && stadium.enabled) stadium.Build(data.length, data.width, cam, homeColor, awayColor);
+            if (stadium != null && stadium.enabled) stadium.Build(data.length, data.width, cam, team0Color, team1Color);
             else stadium = null;
             BuildActors();
             time = data.startTime;
@@ -170,25 +243,59 @@ namespace SoccerReplay
 
         void BuildActors()
         {
-            var homeMat = PitchBuilder.MakeMaterial(homeColor);
-            var awayMat = PitchBuilder.MakeMaterial(awayColor);
+            var homeMat = PitchBuilder.MakeMaterial(team0Color);
+            var awayMat = PitchBuilder.MakeMaterial(team1Color);
             var refMat = PitchBuilder.MakeMaterial(new Color(0.08f, 0.08f, 0.09f));
             var homeGkMat = PitchBuilder.MakeMaterial(homeKeeperColor);
             var awayGkMat = PitchBuilder.MakeMaterial(awayKeeperColor);
-            var trimMat = PitchBuilder.MakeMaterial(new Color(0.95f, 0.95f, 0.95f));
+            // Chest stripe that contrasts with each kit (dark on light kits, white on dark kits)
+            Material TrimFor(Color kit) => PitchBuilder.MakeMaterial(kit.grayscale > 0.55f ? new Color(0.1f, 0.1f, 0.14f) : new Color(0.95f, 0.95f, 0.95f));
+            var homeTrimMat = TrimFor(team0Color);
+            var awayTrimMat = TrimFor(team1Color);
             var refTrimMat = PitchBuilder.MakeMaterial(new Color(1f, 0.85f, 0.1f));
             var actors = new GameObject("Players").transform;
             actors.SetParent(transform, false);
 
+            if (estimateKeepers) PlanKeepers();
+
+            if (estimateOffscreenPlayers)
+            {
+                // Join tracks into people and draw one body per person (solid when tracked, see-through when estimated)
+                var pool = data.players.FindAll(p => !(estimateKeepers && keeperPieces.Contains(p)));
+                BuildCentroids(pool);
+                foreach (var chain in StitchIdentities(pool))
+                {
+                    var first = chain[0];
+                    var id = new Identity { team = first.team, referee = first.referee };
+                    id.pieces.AddRange(chain);
+                    id.solidMat = first.referee ? refMat : first.goalkeeper ? (first.team == 1 ? awayGkMat : homeGkMat) : (first.team == 1 ? awayMat : homeMat);
+                    id.solidTrim = first.referee ? refTrimMat : first.team == 1 ? awayTrimMat : homeTrimMat;
+                    id.color = id.solidMat.color;
+                    id.trimColor = id.solidTrim.color;
+                    id.ghostMat = PitchBuilder.MakeTransparentMaterial(id.color);
+                    id.ghostTrim = PitchBuilder.MakeTransparentMaterial(id.trimColor);
+                    id.ghostShorts = PitchBuilder.MakeTransparentMaterial(new Color(0.1f, 0.1f, 0.14f));
+                    string kind = first.referee ? "Referee" : "Person";
+                    id.body = PlayerBody.Create($"{kind} {first.id}", actors, id.solidMat, id.solidTrim, "", showLabels,
+                                                ModelOrNull, first.goalkeeper ? KeeperController : playerAnimator);
+                    id.body.SetActive(false);
+                    identities.Add(id);
+                }
+                Debug.Log($"[Replay] Off-camera players: {pool.Count} tracks joined into {identities.Count} people");
+            }
+
             foreach (var tr in data.players)
             {
-                if (estimateKeepers && tr.goalkeeper) continue; // keepers get their own handling below
+                if (estimateOffscreenPlayers) break;                                 // handled as identities above
+                if (estimateKeepers && keeperPieces.Contains(tr)) continue; // validated keepers get their own handling below
                 var mat = tr.referee ? refMat
                         : tr.goalkeeper ? (tr.team == 1 ? awayGkMat : homeGkMat)
                         : (tr.team == 1 ? awayMat : homeMat);
+                var trim = tr.referee ? refTrimMat : tr.team == 1 ? awayTrimMat : homeTrimMat;
                 string kind = tr.referee ? "Referee" : tr.goalkeeper ? "GK" : "Player";
-                var body = PlayerBody.Create($"{kind} {tr.id}", actors, mat, tr.referee ? refTrimMat : trimMat,
-                                             tr.referee ? "REF" : tr.id.ToString(), showLabels);
+                var body = PlayerBody.Create($"{kind} {tr.id}", actors, mat, trim,
+                                             tr.referee ? "REF" : tr.id.ToString(), showLabels,
+                                             ModelOrNull, tr.goalkeeper ? KeeperController : playerAnimator);
                 body.SetActive(false);
                 players.Add((tr, body));
             }
@@ -236,34 +343,261 @@ namespace SoccerReplay
             passLine.enabled = false;
 
             foreach (var (track, body) in players) RegisterActor(track.id, body.root);
+            foreach (var id in identities) foreach (var piece in id.pieces) RegisterActor(piece.id, id.body.root);
             foreach (var k in keepers) if (k.track != null) RegisterActor(k.track.id, k.body.root);
+        }
+
+        /// <summary>
+        /// Joins tracks that are probably the same person: a later track of the same team that starts
+        /// within stitchMaxGap seconds of an earlier one ending, close enough to have run there unseen.
+        /// Greedy in start-time order, picking the cheapest (shortest gap, shortest run) chain to extend.
+        /// </summary>
+        List<List<Track>> StitchIdentities(List<Track> pool)
+        {
+            var sorted = new List<Track>(pool);
+            sorted.Sort((a, b) => a.Start.CompareTo(b.Start));
+            var chains = new List<List<Track>>();
+            foreach (var q in sorted)
+            {
+                int best = -1;
+                float bestCost = float.MaxValue;
+                for (int i = 0; i < chains.Count; i++)
+                {
+                    var p = chains[i][chains[i].Count - 1];
+                    if (p.team != q.team || p.referee != q.referee) continue;
+                    float gap = q.Start - p.End;
+                    if (gap < 0f || gap > stitchMaxGap) continue;                // overlapping tracks are different people
+                    float dist = Vector2.Distance(q.positions[0], p.positions[p.Count - 1]);
+                    if (dist > stitchRunSpeed * gap + 3f) continue;              // couldn't have got there
+                    float cost = gap + dist / Mathf.Max(0.1f, stitchRunSpeed);
+                    if (cost < bestCost) { bestCost = cost; best = i; }
+                }
+                if (best >= 0) chains[best].Add(q);
+                else chains.Add(new List<Track> { q });
+            }
+            return chains;
+        }
+
+        /// <summary>Average position of each team's tracked outfield players over time (0.1 s steps).</summary>
+        void BuildCentroids(List<Track> pool)
+        {
+            int n = Mathf.Max(1, Mathf.CeilToInt(data.Duration / CentroidStep) + 1);
+            centroidX = new[] { new float[n], new float[n] };
+            centroidY = new[] { new float[n], new float[n] };
+            for (int team = 0; team < 2; team++)
+            {
+                float lastX = 0f, lastY = 0f;
+                for (int i = 0; i < n; i++)
+                {
+                    float t = data.startTime + i * CentroidStep;
+                    float sx = 0f, sy = 0f; int c = 0;
+                    foreach (var tr in pool)
+                    {
+                        if (tr.team != team || tr.referee || tr.goalkeeper) continue;
+                        if (tr.TrySample(t, playerMaxGap, out var p)) { sx += p.x; sy += p.y; c++; }
+                    }
+                    if (c > 0) { lastX = sx / c; lastY = sy / c; }
+                    centroidX[team][i] = lastX;
+                    centroidY[team][i] = lastY;
+                }
+            }
+        }
+
+        Vector2 CentroidAt(int team, float t)
+        {
+            if (centroidX == null || team < 0 || team > 1) return Vector2.zero;
+            float f = Mathf.Clamp((t - data.startTime) / CentroidStep, 0f, centroidX[team].Length - 1);
+            int i = Mathf.FloorToInt(f), j = Mathf.Min(i + 1, centroidX[team].Length - 1);
+            float k = f - i;
+            return new Vector2(Mathf.Lerp(centroidX[team][i], centroidX[team][j], k), Mathf.Lerp(centroidY[team][i], centroidY[team][j], k));
+        }
+
+        /// <summary>Where this person is (or is estimated to be) at the current time.</summary>
+        void EvaluateIdentity(Identity id)
+        {
+            id.real = false; id.candidate = false; id.currentPiece = null;
+            Track prev = null, next = null, spanning = null;
+            foreach (var p in id.pieces)
+            {
+                if (p.TrySample(time, playerMaxGap, out var pos))
+                {
+                    id.real = true; id.candidate = true; id.target = pos; id.currentPiece = p;
+                    id.confidence = 0f; id.realWeight = 1f;
+                    return;
+                }
+                if (p.Start <= time && time <= p.End) spanning = p;   // inside a track, but in a long dropout
+                else if (p.End < time) prev = p;
+                else if (next == null && p.Start > time) next = p;
+            }
+
+            float d;
+            if (spanning != null)
+            {
+                id.target = spanning.SampleClamped(time);
+                d = spanning.TimeToNearestSample(time);
+                id.candidate = true;
+            }
+            else if (prev != null && next != null)
+            {
+                // Between two sightings: glide from where they were last seen to where they'll be seen next
+                float u = Mathf.Clamp01((time - prev.End) / Mathf.Max(0.01f, next.Start - prev.End));
+                u = u * u * (3f - 2f * u);
+                id.target = Vector2.Lerp(prev.positions[prev.Count - 1], next.positions[0], u);
+                d = Mathf.Min(time - prev.End, next.Start - time);
+                id.candidate = true;
+            }
+            else
+            {
+                // Before the first or after the last sighting: stay near that spot, moving with the team's shape
+                var anchorTrack = next ?? prev;
+                bool before = next != null;
+                float anchorT = before ? anchorTrack.Start : anchorTrack.End;
+                Vector2 anchor = before ? anchorTrack.positions[0] : anchorTrack.positions[anchorTrack.Count - 1];
+                Vector2 drift = Vector2.ClampMagnitude((CentroidAt(id.team, time) - CentroidAt(id.team, anchorT)) * ghostTeamFollow, ghostMaxDrift);
+                id.target = anchor + drift;
+                d = Mathf.Abs(time - anchorT);
+                id.candidate = d <= ghostHoldTime;
+            }
+            id.confidence = d;
+            float w = 1f - Mathf.Clamp01((d - playerMaxGap * 0.5f) / Mathf.Max(0.01f, ghostBlendTime));
+            id.realWeight = w * w * (3f - 2f * w);
+        }
+
+        void UpdateIdentities(float dt, bool snap)
+        {
+            if (identities.Count == 0) return;
+            estimatedCount = 0;
+            foreach (var id in identities) EvaluateIdentity(id);
+
+            // Keep at most maxOutfieldPerTeam outfield players per team: estimates closest in time to real data win
+            for (int team = 0; team < 2; team++)
+            {
+                int real = 0;
+                var ghosts = new List<Identity>();
+                foreach (var id in identities)
+                {
+                    if (id.team != team || id.referee) continue;
+                    if (id.real) real++;
+                    else if (id.candidate) ghosts.Add(id);
+                }
+                ghosts.Sort((a, b) => a.confidence.CompareTo(b.confidence));
+                int allowed = Mathf.Max(0, maxOutfieldPerTeam - real);
+                for (int i = allowed; i < ghosts.Count; i++) ghosts[i].candidate = false;
+            }
+
+            foreach (var id in identities)
+            {
+                bool want = id.real || id.candidate;
+                float targetPresence = want ? 1f : 0f;
+                id.presence = snap ? targetPresence : Mathf.MoveTowards(id.presence, targetPresence, dt / 0.5f);
+                if (id.presence <= 0.001f && !want) { id.body.SetActive(false); continue; }
+
+                bool appearing = !id.body.Active;
+                id.body.SetActive(true);
+                bool jump = snap || appearing;
+
+                // Displayed position: tracked players follow the data; estimates glide at a capped speed
+                if (jump || dt <= 0f) { if (jump) id.displayPos = id.target; }
+                else id.displayPos = Vector2.MoveTowards(id.displayPos, id.target, (id.real ? 20f : ghostMaxSpeed) * dt);
+
+                // Velocity for facing/lean: from the track when tracked, from the displayed motion when estimated
+                if (id.real && id.currentPiece != null) id.vel = id.currentPiece.VelocityAt(time, bodyMotion.velocityWindow);
+                else if (jump) id.vel = Vector2.zero;
+                else if (dt > 0f) id.vel = Vector2.Lerp(id.vel, (id.displayPos - id.prevDisplayPos) / dt, 1f - Mathf.Exp(-6f * dt));
+                id.prevDisplayPos = id.displayPos;
+
+                // Solid when tracked, see-through when estimated, fading with presence
+                float a = Mathf.Lerp(ghostAlpha, 1f, id.realWeight) * id.presence;
+                if (a >= 0.99f) id.body.SetLook(id.solidMat, id.solidTrim);
+                else
+                {
+                    var c = id.color; c.a = a; id.ghostMat.color = c;
+                    var tc = id.trimColor; tc.a = a; id.ghostTrim.color = tc;
+                    id.ghostShorts.color = new Color(0.1f, 0.1f, 0.14f, a);
+                    id.body.SetLook(id.ghostMat, id.ghostTrim, id.ghostShorts);
+                }
+                if (id.body.label != null)
+                {
+                    id.body.label.text = id.referee ? "REF" : id.real ? id.currentPiece.id.ToString() : "";
+                    id.body.label.color = new Color(1f, 1f, 1f, Mathf.Max(a, 0.001f));
+                }
+
+                id.body.UpdateMotion(id.displayPos, id.vel, lastBall, 1f, dt, jump, bodyMotion);
+
+                if (!id.referee)
+                {
+                    if (id.real) visibleCount++;
+                    else if (id.candidate) estimatedCount++;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Decides which goal each team defends and which keeper-labelled tracks are real keepers.
+        /// Sides come from the team with the most keeper data; a "keeper" far from his own goal is
+        /// treated as a misclassified outfield player. Real keeper pieces are stitched into one track.
+        /// </summary>
+        void PlanKeepers()
+        {
+            keeperPieces.Clear();
+            rejectedKeepers = 0;
+            var pieces = new[] { new List<Track>(), new List<Track>() };
+            foreach (var tr in data.players)
+                if (tr.goalkeeper && tr.team >= 0 && tr.team < 2) pieces[tr.team].Add(tr);
+
+            int Samples(List<Track> l) { int n = 0; foreach (var t in l) n += t.Count; return n; }
+            float AvgX(List<Track> l)
+            {
+                float s = 0f; int n = 0;
+                foreach (var t in l) for (int i = 0; i < t.Count; i++) { s += t.positions[i].x; n++; }
+                return n > 0 ? s / n : 0f;
+            }
+
+            plannedHomeSide = homeDefendsWest ? -1 : 1;
+            if (autoDetectSides)
+            {
+                int best = Samples(pieces[0]) >= Samples(pieces[1]) ? 0 : 1;
+                if (Samples(pieces[best]) > 0)
+                {
+                    int side = AvgX(pieces[best]) < 0 ? -1 : 1;
+                    plannedHomeSide = best == 0 ? side : -side;
+                }
+            }
+
+            for (int team = 0; team < 2; team++)
+            {
+                int side = team == 0 ? plannedHomeSide : -plannedHomeSide;
+                float goalX = side * data.length / 2f;
+                var accepted = new List<Track>();
+                foreach (var piece in pieces[team])
+                {
+                    if (Mathf.Abs(piece.AverageX() - goalX) <= keeperMaxDistanceFromGoal) accepted.Add(piece);
+                    else
+                    {
+                        piece.goalkeeper = false; // misclassified: draw as a normal outfield player
+                        rejectedKeepers++;
+                        Debug.Log($"[Replay] Track {piece.id} (team {team}) is labelled goalkeeper but averages {Mathf.Abs(piece.AverageX() - goalX):F0} m from its goal; treating as outfield");
+                    }
+                }
+                keeperTrackByTeam[team] = null;
+                if (accepted.Count == 0) continue;
+                foreach (var a in accepted) keeperPieces.Add(a);
+
+                var samples = new List<(float t, Vector2 p)>();
+                foreach (var piece in accepted)
+                    for (int i = 0; i < piece.Count; i++) samples.Add((piece.times[i], piece.positions[i]));
+                samples.Sort((x, y) => x.t.CompareTo(y.t));
+                var merged = new Track { id = accepted[0].id, team = team, goalkeeper = true };
+                foreach (var s in samples)
+                    if (merged.Count == 0 || s.t > merged.End) merged.Add(s.t, s.p);
+                keeperTrackByTeam[team] = merged;
+            }
         }
 
         void BuildKeepers(Transform parent)
         {
-            // Stitch every keeper-labelled piece of a team into one track (keepers don't swap with anyone)
-            var tracks = new Track[2];
-            for (int team = 0; team < 2; team++)
-            {
-                var pieces = data.players.FindAll(p => p.goalkeeper && p.team == team);
-                if (pieces.Count == 0) continue;
-                var samples = new List<(float t, Vector2 p)>();
-                foreach (var piece in pieces)
-                    for (int i = 0; i < piece.Count; i++) samples.Add((piece.times[i], piece.positions[i]));
-                samples.Sort((a, b) => a.t.CompareTo(b.t));
-                var merged = new Track { id = pieces[0].id, team = team, goalkeeper = true };
-                foreach (var s in samples)
-                    if (merged.Count == 0 || s.t > merged.End) merged.Add(s.t, s.p);
-                tracks[team] = merged;
-            }
-
-            // Which goal does each team defend?
-            int homeSide = homeDefendsWest ? -1 : 1;
-            if (autoDetectSides)
-            {
-                if (tracks[0] != null) homeSide = tracks[0].AverageX() < 0 ? -1 : 1;
-                else if (tracks[1] != null) homeSide = tracks[1].AverageX() < 0 ? 1 : -1;
-            }
+            var tracks = keeperTrackByTeam;
+            int homeSide = plannedHomeSide;
 
             for (int team = 0; team < 2; team++)
             {
@@ -276,7 +610,8 @@ namespace SoccerReplay
                 };
                 k.mat = PitchBuilder.MakeTransparentMaterial(k.color);
                 k.trimMat = PitchBuilder.MakeTransparentMaterial(new Color(0.12f, 0.12f, 0.15f));
-                k.body = PlayerBody.Create($"Keeper team {team}", parent, k.mat, k.trimMat, "", showLabels);
+                k.body = PlayerBody.Create($"Keeper team {team}", parent, k.mat, k.trimMat, "", showLabels,
+                                           ModelOrNull, KeeperController);
                 k.label = k.body.label;
 
                 keepers.Add(k);
@@ -488,6 +823,8 @@ namespace SoccerReplay
                 body.UpdateMotion(p, vel, lastBall, fade, motionDt, motionSnap || justAppeared, bodyMotion);
             }
 
+            UpdateIdentities(motionDt, motionSnap);
+
             if (ballGo.gameObject.activeSelf != ballVisible) ballGo.gameObject.SetActive(ballVisible);
             if (ballVisible)
             {
@@ -560,6 +897,8 @@ namespace SoccerReplay
             // Billboard labels toward the camera
             foreach (var (_, body) in players)
                 if (body.Active && body.label != null) body.label.transform.rotation = cam.transform.rotation;
+            foreach (var id in identities)
+                if (id.body.Active && id.body.label != null) id.body.label.transform.rotation = cam.transform.rotation;
             foreach (var keeper in keepers)
                 if (keeper.label != null) keeper.label.transform.rotation = cam.transform.rotation;
         }
@@ -670,7 +1009,8 @@ namespace SoccerReplay
             GUILayout.FlexibleSpace();
             int keepersReal = keepers.FindAll(k => k.realWeight > 0.5f).Count;
             string keeperInfo = keepers.Count > 0 ? $"   Keepers: {keepersReal} tracked, {keepers.Count - keepersReal} estimated" : "";
-            GUILayout.Label($"Players tracked: {visibleCount}{keeperInfo}   Ball: {(ballVisible ? "yes" : "lost")}");
+            string estInfo = identities.Count > 0 ? $"  (+{estimatedCount} estimated off camera)" : "";
+            GUILayout.Label($"Players tracked: {visibleCount}{estInfo}{keeperInfo}   Ball: {(ballVisible ? "yes" : "lost")}");
             GUILayout.EndHorizontal();
 
             GUILayout.EndArea();
