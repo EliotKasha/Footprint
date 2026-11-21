@@ -108,6 +108,8 @@ def main():
     ap.add_argument("--video", help="source video, shown next to the minimap")
     ap.add_argument("--out", default="viz.mp4")
     ap.add_argument("--show", action="store_true", help="show a live window instead of / as well as writing")
+    ap.add_argument("--kit-colors", action="store_true",
+                    help="draw each team in its real shirt colour (from match.json 'teams') instead of red/blue")
     ap.add_argument("--max-speed", type=float, default=12.0,
                     help="m/s above which a player's move is flagged (top sprint speed is ~10 m/s). "
                          "Replaces --max-jump, which ignored frame rate: 2 m/frame at 25 fps is 50 m/s.")
@@ -115,6 +117,10 @@ def main():
 
     with open(a.json) as fh:
         data = json.load(fh)
+    if a.kit_colors:
+        for k, info in (data.get("teams") or {}).items():
+            r, g, b = info["kit_rgb"]
+            TEAM_COLORS[int(k)] = (b, g, r)
     L, W, fps = data["pitch"]["length"], data["pitch"]["width"], data["fps"]
     # Drawing works in corner coordinates; files written with --origin center are shifted back here.
     centered = data["pitch"].get("origin", "corner") == "center"

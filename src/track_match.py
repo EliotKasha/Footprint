@@ -55,6 +55,7 @@ MAX_BALL_STEP = 4.0     # metres per processed frame the ball may move (generous
 BALL_MARGIN = 5.0       # metres outside the pitch where a ball detection is still accepted
 OUTLIER_MIN_DIST = 40.0  # LAB distance from both team colours that marks a track as a keeper-like outlier
 LIGHTNESS_WEIGHT = 0.5  # weight of LAB L (brightness) vs a/b (hue) when comparing shirt colours
+TEAM_ORDER_MIN_DL = 15.0  # OpenCV L units (0-255): kits closer than this in brightness are ordered by hue
 MAX_COLOR_OVERLAP = 0.15  # skip colour samples when this much of the box is covered by another person
 LOCAL_MODEL_SUFFIXES = (".pt", ".onnx", ".engine", ".mlpackage", ".mlmodel", ".torchscript",
                         "_openvino_model", "_ncnn_model", "_saved_model", ".tflite")
@@ -64,7 +65,9 @@ BALL_LINK_PX = 30.0     # image-space link radius per frame, in pixels at 1920 p
 BALL_TELEPORT_COST = 0.15  # path cost per metre the ball would have to jump beyond what is physically possible
 UPPER_BODY = 0.7        # ball candidates inside the top 70% of a person box are shirts/heads, not the ball
 LINE_RADII = (64, 32, 16, 8)  # px search radii (at 1920 px width) for the coarse-to-fine line refinement
-AMBIGUITY_RATIO = 0.8   # track stitching: a link must be this much cheaper than any alternative
+SPRINT = 8.0            # m/s: a player can't cover more than this (+ a little noise) between sightings
+MAX_SHOWN_SPEED = 11.0  # m/s: final cap on frame-to-frame movement in the output
+AMBIGUITY_RATIO = 0.9   # track stitching: a link must be this much cheaper than any alternative
 LINE_SKIP_KP = 0.92     # prediction fits the lines this well -> don't spend time fitting the landmark one
 UNSETTLED_FIT = 0.7     # line fit below this at the start of a shot = calibration not settled yet (dropped)
 LINE_CONFIRM = 0.8      # a line fit this good counts as a fresh calibration
@@ -766,6 +769,8 @@ def stitch_tracks(frames_out, color_samples, role_votes, fps, max_gap_s, L, W):
                 if g_keep.get(ga) != g_keep.get(gb):
                     continue
                 gap_s = gap / fps
+                if np.linalg.norm(p0 - p1) > 1.5 + SPRINT * gap_s:
+                    continue  # nobody covers that distance in that time
                 # Project the ending fragment forward and the new one backward to the middle of the gap
                 # (each for at most 1 s); they should meet there, moving in a similar way.
                 half = min(gap / 2.0, fps)
@@ -819,7 +824,141 @@ def stitch_tracks(frames_out, color_samples, role_votes, fps, max_gap_s, L, W):
     return mapping
 
 
-def fill_player_gaps(frames_out, max_gap):
+def _reassign_after(frames_out, color_seq, role_votes, tid, f_split, nid):
+    """Frames >= f_split of track `tid` become track `nid` (entries, colour samples, role votes)."""
+    for k in range(f_split, len(frames_out)):
+        for pl in frames_out[k]["players"]:
+            if pl["id"] == tid:
+                pl["id"] = nid
+    if tid in color_seq:
+        color_seq[nid] = [x for x in color_seq[tid] if x[0] >= f_split]
+        color_seq[tid] = [x for x in color_seq[tid] if x[0] < f_split]
+    role_votes[nid] = defaultdict(int, role_votes.get(tid, {}))
+
+
+def split_impossible_jumps(frames_out, color_seq, role_votes, fps, side=3):
+    """Split a track where it jumps further than a player can run: the tracker put the ID on a different
+    person (after losing the first one, or when two boxes merged). Compared robustly: the median of
+    `side` sightings before vs after each step, so detection wobble doesn't trigger it. The parts get
+    separate IDs; stitching then reconnects each to the right continuation. Returns the number of splits."""
+    obs = defaultdict(list)
+    for k, f in enumerate(frames_out):
+        for pl in f["players"]:
+            obs[pl["id"]].append((k, pl["x"], pl["y"]))
+    next_id = max(list(obs) + [0]) + 1
+    splits = 0
+    cand = {}
+    for tid, o in obs.items():
+        if len(o) < 2 * side:
+            continue
+        cuts, j = [], side
+        while j <= len(o) - side:
+            before = np.median([(x, y) for _, x, y in o[j - side:j]], axis=0)
+            after = np.median([(x, y) for _, x, y in o[j:j + side]], axis=0)
+            dt = (np.mean([k for k, _, _ in o[j:j + side]]) - np.mean([k for k, _, _ in o[j - side:j]])) / fps
+            if np.linalg.norm(after - before) > 1.5 + SPRINT * dt:
+                cuts.append(o[j][0])
+                j += side
+                continue
+            j += 1
+        if cuts:
+            cand[tid] = cuts
+    # A calibration correction moves everyone at once; that's not an identity change. Ignore jumps that
+    # at least 40% of the players on screen make within +-2 frames of each other.
+    jump_frames = defaultdict(int)
+    for cuts in cand.values():
+        for f_split in cuts:
+            for k in range(f_split - 2, f_split + 3):
+                jump_frames[k] += 1
+    on_screen = [len(f["players"]) for f in frames_out]
+    for tid, cuts in cand.items():
+        cuts = [c for c in cuts if jump_frames[c] < max(3, 0.4 * on_screen[c])]
+        cur = tid
+        for f_split in cuts:
+            _reassign_after(frames_out, color_seq, role_votes, cur, f_split, next_id)
+            cur = next_id
+            next_id += 1
+            splits += 1
+    return splits
+
+
+def remove_duplicate_tracks(frames_out, fps, near_m=1.0, share=0.6, min_shared=10):
+    """A second box on the same player shows up as a track glued to another one. If two tracks sit within
+    `near_m` of each other for `share` of their shared frames, drop the one with fewer frames. Fragments
+    under a second that stay within `near_m` of some other player are dropped too (too short for the
+    pairwise test, but the same phantom box)."""
+    pos = defaultdict(dict)
+    for k, f in enumerate(frames_out):
+        for pl in f["players"]:
+            pos[pl["id"]][k] = (pl["x"], pl["y"])
+    ids, drop = sorted(pos, key=lambda t: -len(pos[t])), set()
+    for i, a in enumerate(ids):
+        if a in drop:
+            continue
+        for b in ids[i + 1:]:
+            if b in drop:
+                continue
+            shared = set(pos[a]) & set(pos[b])
+            if len(shared) < min_shared:
+                continue
+            close = np.mean([np.hypot(pos[a][k][0] - pos[b][k][0], pos[a][k][1] - pos[b][k][1]) < near_m
+                             for k in shared])
+            if close >= share:
+                drop.add(b)  # b has fewer frames (ids sorted longest first)
+    for t in ids:
+        if t in drop or len(pos[t]) >= fps:
+            continue
+        dn = []
+        for k, (x, y) in pos[t].items():
+            others = [np.hypot(x - ox, y - oy) for o, (ox, oy) in
+                      ((o, pos[o][k]) for o in ids if o != t and o not in drop and k in pos[o])]
+            if others:
+                dn.append(min(others))
+        if dn and np.median(dn) < near_m:
+            drop.add(t)
+    if drop:
+        for f in frames_out:
+            f["players"] = [pl for pl in f["players"] if pl["id"] not in drop]
+    return len(drop)
+
+
+def cap_speed(frames_out, fps, vmax=MAX_SHOWN_SPEED):
+    """Final safety net: no frame-to-frame move faster than vmax. A forward and a backward pass each
+    limit the step, and are averaged, so the result doesn't lag; moves under vmax are left untouched."""
+    step = vmax / fps
+    by_track = defaultdict(list)
+    for k, f in enumerate(frames_out):
+        for pl in f["players"]:
+            by_track[pl["id"]].append((k, pl))
+    for o in by_track.values():
+        runs, cur = [], [o[0]]
+        for x in o[1:]:
+            if x[0] - cur[-1][0] > 1:
+                runs.append(cur)
+                cur = []
+            cur.append(x)
+        runs.append(cur)
+        for run in runs:
+            if len(run) < 2:
+                continue
+            P = np.array([(pl["x"], pl["y"]) for _, pl in run], dtype=float)
+            if (np.linalg.norm(np.diff(P, axis=0), axis=1) <= step).all():
+                continue
+
+            def limited(Q):
+                out = Q.copy()
+                for j in range(1, len(Q)):
+                    d = Q[j] - out[j - 1]
+                    n = np.linalg.norm(d)
+                    out[j] = out[j - 1] + (d * step / n if n > step else d)
+                return out
+
+            P2 = 0.5 * (limited(P) + limited(P[::-1])[::-1])
+            for (_, pl), p in zip(run, P2):
+                pl["x"], pl["y"] = float(p[0]), float(p[1])
+
+
+def fill_player_gaps(frames_out, max_gap, fps):
     """Linearly fill short gaps inside each track (missed detections, brief occlusions), only through
     frames that have a pitch view. Filled entries get "interp": true."""
     if max_gap <= 0:
@@ -835,6 +974,8 @@ def fill_player_gaps(frames_out, max_gap):
                 continue
             if not all(frames_out[j]["view"] for j in range(i0 + 1, i1)):
                 continue
+            if np.hypot(b["x"] - a["x"], b["y"] - a["y"]) > 1.0 + SPRINT * (i1 - i0) / fps:
+                continue  # can't be one person: don't draw a sprint between them
             for j in range(i0 + 1, i1):
                 s = (j - i0) / (i1 - i0)
                 frames_out[j]["players"].append({"id": tid, "x": a["x"] + s * (b["x"] - a["x"]),
@@ -900,7 +1041,34 @@ def fit_team_colors(color_samples, roles):
     keep = use & ~outlier
     if keep.sum() >= 2:  # refit without the outliers so they can't drag a cluster centre
         km = KMeans(n_clusters=2, n_init=10, random_state=0).fit(X[keep])
+    canonical_team_order(km)
     return km, tids, X, outlier
+
+
+def canonical_team_order(km):
+    """KMeans numbers its two clusters arbitrarily, so team 0/1 could swap between runs (or strides) of
+    the same video. Fix the order by the kits themselves: team 0 = the lighter shirt; when both are about
+    equally light, team 0 = the warmer one (higher LAB a + b: red/orange/yellow before blue/green)."""
+    c = km.cluster_centers_
+    L0, L1 = c[0, 0] / LIGHTNESS_WEIGHT, c[1, 0] / LIGHTNESS_WEIGHT  # undo the brightness down-weighting
+    if abs(L0 - L1) >= TEAM_ORDER_MIN_DL:
+        swap = L1 > L0
+    else:
+        swap = (c[1, 1] + c[1, 2]) > (c[0, 1] + c[0, 2])
+    if swap:
+        km.cluster_centers_ = c[::-1].copy()
+        if hasattr(km, "labels_"):
+            km.labels_ = 1 - km.labels_
+    return km
+
+
+def kit_rgb(center):
+    """Cluster centre (OpenCV LAB with down-weighted L) -> [r, g, b] 0-255 and '#rrggbb'."""
+    lab = np.array(center, dtype=np.float64).copy()
+    lab[0] /= LIGHTNESS_WEIGHT
+    px = np.clip(np.round(lab), 0, 255).astype(np.uint8).reshape(1, 1, 3)
+    r, g, b = (int(v) for v in cv2.cvtColor(px, cv2.COLOR_LAB2RGB)[0, 0])
+    return [r, g, b], f"#{r:02x}{g:02x}{b:02x}"
 
 
 def sample_votes(km, colors):
@@ -973,7 +1141,7 @@ def split_team_switches(frames_out, color_seq, role_votes, fps):
                     if pl["id"] == tid:
                         pl["id"] = nid
             new_seqs[nid] = seq[a_:b_]
-            role_votes[nid] = dict(role_votes[tid])
+            role_votes[nid] = defaultdict(int, role_votes[tid])
             splits += 1
         color_seq[tid] = seq[:cut_points[0]]
     color_seq.update(new_seqs)
@@ -1294,6 +1462,7 @@ def main():
     for k, p in choose_ball_path(ball_cands, motions, [f["view"] for f in frames_out], frame_w).items():
         frames_out[k]["ball"] = [round(float(p[0]), 2), round(float(p[1]), 2)]
     n_raw_ids = len({pl["id"] for f in frames_out for pl in f["players"]})
+    n_jump_splits = split_impossible_jumps(frames_out, color_seq, role_votes, fps)
     n_splits = split_team_switches(frames_out, color_seq, role_votes, fps)
     color_samples = defaultdict(list)
     for t, seq in color_seq.items():  # evenly spread subset per track for clustering and stitching
@@ -1303,9 +1472,11 @@ def main():
         color_samples[t] = cs
     stitch_tracks(frames_out, color_samples, role_votes, fps, a.stitch_gap, L, W)
     n_ids = len({pl["id"] for f in frames_out for pl in f["players"]})
-    n_filled = fill_player_gaps(frames_out, int(round(a.fill_gap * fps)))
+    n_dups = remove_duplicate_tracks(frames_out, fps)
+    n_filled = fill_player_gaps(frames_out, int(round(a.fill_gap * fps)), fps)
     win = a.smooth_window if a.smooth_window is not None else int(round(a.smooth_seconds * fps)) | 1
     smooth_tracks(frames_out, win, jump_window=max(3, int(round(0.25 * fps)) | 1))
+    cap_speed(frames_out, fps)
     if a.ball_gap > 0:
         interpolate_ball(frames_out, a.ball_gap)
     for f in frames_out:
@@ -1322,7 +1493,12 @@ def main():
             pos_n[pl["id"]] += 1
 
     teams, outliers = assign_teams(color_samples, roles)
-    team_fit = fit_team_colors(color_samples, roles) if a.debug_teams else None  # same model as assign_teams
+    team_fit = fit_team_colors(color_samples, roles)  # same model as assign_teams (kit colours, --debug-teams)
+    team_info = {}
+    if team_fit is not None:
+        for k in (0, 1):
+            rgb, hx = kit_rgb(team_fit[0].cluster_centers_[k])
+            team_info[str(k)] = {"kit_rgb": rgb, "kit_hex": hx}
 
     # Goalkeeper = the detector said so, or a shirt-colour outlier that spends its time near a goal.
     keepers = set()
@@ -1422,9 +1598,12 @@ def main():
                   "y_range": [-W / 2, W / 2] if a.origin == "center" else [0, W]}
     with open(a.out, "w") as fh:
         json.dump({"pitch": pitch_info, "fps": fps, "video": {"width": info.width, "height": info.height},
-                   "stats": dict(stats), "frames": frames_out}, fh)
+                   "teams": team_info, "stats": dict(stats), "frames": frames_out}, fh)
     n, usable = len(frames_out), sum(f["view"] for f in frames_out)
     print(f"wrote {n} frames -> {a.out}")
+    if team_info:
+        print(f"  teams: 0 = kit {team_info['0']['kit_hex']}, 1 = kit {team_info['1']['kit_hex']}  "
+              f"(team 0 is always the lighter kit, or the warmer one when equally light)")
     print(f"  usable pitch view: {usable}/{n}  (fresh calibration {stats['kp']}, coasting {stats['coast']}, "
           f"no view {stats['noview']}, landmark calibrations rejected {stats['gated']}, snapped to lines {stats['line_refined']}, "
           f"keypoint model skipped on {stats['kp_not_run']} frames, {stats['unsettled']} frames dropped while the "
@@ -1438,7 +1617,8 @@ def main():
         other = max(total - sum(timing.values()), 0.0)
         print(f"  time per processed frame: {1000 * total / n:.0f} ms = " + ", ".join(
             f"{name} {1000 * sec / n:.0f}" for name, sec in parts) + f", other {1000 * other / n:.0f}")
-    print(f"  tracks: {n_raw_ids} raw ({n_splits} split at a team switch) -> {n_ids} after stitching, {n_filled} player positions filled in; "
+    print(f"  tracks: {n_raw_ids} raw ({n_jump_splits} split at an impossible jump, {n_splits} at a team switch, "
+          f"{n_dups} duplicates removed) -> {n_ids} after stitching, {n_filled} player positions filled in; "
           f"referees found: {len(referees)}, goalkeepers found: {len(keepers)}{f' ({len(rename)} keeper fragments joined)' if rename else ''}")
 
 
