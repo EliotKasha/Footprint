@@ -84,6 +84,7 @@ namespace SoccerReplay
             public float confidence;       // seconds to the nearest real sighting (0 when tracked)
             public float realWeight;       // 1 = solid, 0 = fully see-through
             public float presence;         // 0..1 fade for appearing / being culled
+            public List<ScheduledAction> actions;  // this person's actions across all their track pieces
         }
         readonly List<Identity> identities = new List<Identity>();
         int estimatedCount;
@@ -99,6 +100,33 @@ namespace SoccerReplay
         public RuntimeAnimatorController playerAnimator;
         [Tooltip("Animator for goalkeepers (goalkeeper idle); falls back to the player animator")]
         public RuntimeAnimatorController keeperAnimator;
+
+        [Header("Actions (kicks, receives, headers, keeper)")]
+        [Tooltip("Play action animations from the match events")]
+        public bool playActions = true;
+        [Tooltip("Filled in by Soccer Replay > Setup Animated Players")]
+        public List<ActionClip> actionClips = new List<ActionClip>();
+        public float actionBlendIn = 0.15f;
+        public float actionBlendOut = 0.25f;
+        [Tooltip("Passer faster than this (m/s) uses the running kick")]
+        public float runningKickSpeed = 2f;
+        [Tooltip("Passes longer than this (m), or aerial passes, use the long kick")]
+        public float longPassLength = 30f;
+        [Tooltip("A ball arriving at least this high (m) at a player is headed")]
+        public float headerMinHeight = 1.2f;
+        [Tooltip("A ball arriving between this and header height is controlled (receive)")]
+        public float chestMinHeight = 0.5f;
+        [Tooltip("Shift players so the kicking foot / head / hands meet the ball at contact")]
+        public bool alignContact = true;
+        [Tooltip("Largest shift (m) used to bring the foot to the ball")]
+        public float maxContactNudge = 1.5f;
+        [Tooltip("Seconds either side of contact over which the shift blends in and out")]
+        public float contactNudgeWindow = 0.45f;
+        [Tooltip("Use the mirrored (other-foot) clip when the ball is on the player's other side")]
+        public bool mirrorForBallSide = true;
+
+        Dictionary<int, List<ScheduledAction>> actionsByPlayer = new Dictionary<int, List<ScheduledAction>>();
+        int actionsPlaying;
 
         GameObject ModelOrNull => useAnimatedPlayers && playerModel != null && playerAnimator != null ? playerModel : null;
         RuntimeAnimatorController KeeperController => keeperAnimator != null ? keeperAnimator : playerAnimator;
@@ -149,6 +177,7 @@ namespace SoccerReplay
             public Vector2 smoothedEstimate;
             public Vector2 displayPos, prevDisplayPos, vel;
             public float realWeight; // 1 = fully tracked, 0 = fully estimated
+            public List<ScheduledAction> actions;
         }
         readonly List<Keeper> keepers = new List<Keeper>();
         bool snapKeepers = true;
@@ -237,6 +266,7 @@ namespace SoccerReplay
             if (stadium != null && stadium.enabled) stadium.Build(data.length, data.width, cam, team0Color, team1Color);
             else stadium = null;
             BuildActors();
+            BuildActionSchedule();
             time = data.startTime;
             if (cam != null) SnapCamera();
         }
@@ -345,6 +375,136 @@ namespace SoccerReplay
             foreach (var (track, body) in players) RegisterActor(track.id, body.root);
             foreach (var id in identities) foreach (var piece in id.pieces) RegisterActor(piece.id, id.body.root);
             foreach (var k in keepers) if (k.track != null) RegisterActor(k.track.id, k.body.root);
+        }
+
+        /// <summary>
+        /// Measures each action clip on a hidden copy of the animated player: the contact moment is when the
+        /// foot / head / hands move fastest relative to the hips, and the contact offset is where that limb is
+        /// then, relative to the character. Done at runtime because humanoid poses only evaluate reliably here.
+        /// </summary>
+        void MeasureActionClips()
+        {
+            if (ModelOrNull == null || actionClips == null || actionClips.Count == 0) return;
+            var go = Instantiate(playerModel, new Vector3(0f, -200f, 0f), Quaternion.identity);
+            go.name = "Action Measurer";
+            foreach (var r in go.GetComponentsInChildren<Renderer>()) r.enabled = false;
+            var anim = go.GetComponent<Animator>();
+            if (anim == null || anim.avatar == null) { Destroy(go); return; }
+            anim.runtimeAnimatorController = playerAnimator;
+            anim.applyRootMotion = false;
+            anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            anim.SetLayerWeight(1, 1f);
+            var hips = anim.GetBoneTransform(HumanBodyBones.Hips);
+            var report = new System.Text.StringBuilder();
+
+            foreach (var c in actionClips)
+            {
+                if (c == null || c.clip == null) continue;
+                var bones = c.contactPart == 0 ? new[] { HumanBodyBones.LeftFoot, HumanBodyBones.RightFoot }
+                          : c.contactPart == 1 ? new[] { HumanBodyBones.Head }
+                          : new[] { HumanBodyBones.LeftHand, HumanBodyBones.RightHand };
+                const float step = 1f / 60f;
+                float len = c.clip.length, end = Mathf.Min(len, c.searchEnd);
+                var prev = new Vector3[bones.Length];
+                float bestSpeed = 0f, bestT = c.contact;
+                for (int i = 0; i * step <= end; i++)
+                {
+                    float t = i * step;
+                    anim.Play(c.StateHash, 1, t / len);
+                    anim.Update(0f);
+                    for (int b = 0; b < bones.Length; b++)
+                    {
+                        var bone = anim.GetBoneTransform(bones[b]);
+                        if (bone == null || hips == null) continue;
+                        var rel = bone.position - hips.position;
+                        if (i > 0)
+                        {
+                            float speed = (rel - prev[b]).magnitude / step;
+                            if (speed > bestSpeed)
+                            {
+                                bestSpeed = speed; bestT = t;
+                                c.contactOffset = go.transform.InverseTransformPoint(bone.position);
+                                c.contactRightSide = bones[b] == HumanBodyBones.RightFoot || bones[b] == HumanBodyBones.RightHand ||
+                                                     (bones[b] == HumanBodyBones.Head && c.contactOffset.x >= 0f);
+                            }
+                        }
+                        prev[b] = rel;
+                    }
+                }
+                c.measured = bestSpeed > 0.5f;
+                if (c.measured)
+                {
+                    c.contact = bestT;
+                    c.clipStart = Mathf.Max(0f, bestT - c.maxLead);
+                    c.clipEnd = Mathf.Min(len, bestT + c.maxFollow);
+                }
+                report.Append($"\n  {c.name,-15} contact {c.contact:F2}s of {len:F2}s (peak {bestSpeed:F1} m/s{(c.measured ? "" : ", NOT measured")}), " +
+                              $"{(c.contactRightSide ? "right" : "left")} limb at ({c.contactOffset.x:F2}, {c.contactOffset.y:F2}, {c.contactOffset.z:F2})");
+            }
+            Destroy(go);
+            Debug.Log($"[Replay] Measured action clips:{report}");
+        }
+
+        /// <summary>Turns the match events into per-player action animations and hands each body its list.</summary>
+        void BuildActionSchedule()
+        {
+            actionsByPlayer = new Dictionary<int, List<ScheduledAction>>();
+            if (!playActions || ModelOrNull == null || actionClips == null || actionClips.Count == 0) return;
+            MeasureActionClips();
+            var clips = new Dictionary<string, ActionClip>();
+            foreach (var c in actionClips) if (c != null && c.clip != null) clips[c.name] = c;
+
+            var keeperIds = new HashSet<int>();
+            foreach (var p in keeperPieces) keeperIds.Add(p.id);
+            actionsByPlayer = ActionScheduler.Build(data, clips, id => keeperIds.Contains(id), new ActionScheduler.Settings
+            {
+                runningKickSpeed = runningKickSpeed,
+                longPassLength = longPassLength,
+                headerMinHeight = headerMinHeight,
+                chestMinHeight = chestMinHeight,
+                nearestPlayerRange = 4f,
+                dedupWindow = 0.35f,
+                maxNudge = alignContact ? maxContactNudge : 0f,
+                allowMirror = mirrorForBallSide,
+            }, out var summary);
+
+            List<ScheduledAction> Collect(IEnumerable<int> ids)
+            {
+                var list = new List<ScheduledAction>();
+                foreach (var id in ids) if (actionsByPlayer.TryGetValue(id, out var l)) list.AddRange(l);
+                list.Sort((a, b) => a.start.CompareTo(b.start));
+                return list;
+            }
+            foreach (var id in identities)
+            {
+                var ids = new List<int>();
+                foreach (var p in id.pieces) ids.Add(p.id);
+                id.actions = Collect(ids);
+            }
+            foreach (var k in keepers)
+            {
+                var ids = new List<int>();
+                foreach (var p in keeperPieces) if (p.team == k.team) ids.Add(p.id);
+                k.actions = Collect(ids);
+            }
+            Debug.Log($"[Replay] Actions: {summary}");
+        }
+
+        /// <summary>
+        /// Applies the active action (if any) to a body. Returns the point to face (if the action needs one)
+        /// and the contact shift to add to the body's position this frame.
+        /// </summary>
+        Vector2? ApplyAction(PlayerBody body, List<ScheduledAction> actions, out Vector2 nudge)
+        {
+            nudge = Vector2.zero;
+            if (!body.Animated) return null;
+            var act = ActionScheduler.ActiveAt(actions, time);
+            if (act == null) { body.SetAction(0, 0f, 0f); return null; }
+            act.Evaluate(time, actionBlendIn, actionBlendOut, out float norm, out float weight);
+            body.SetAction(act.clip.StateHash, norm, weight, act.mirror);
+            if (weight > 0.01f) actionsPlaying++;
+            if (alignContact) nudge = act.nudge * act.NudgeWeight(time, contactNudgeWindow) * weight;
+            return weight > 0.2f ? act.faceTarget : (Vector2?)null;
         }
 
         /// <summary>
@@ -522,7 +682,8 @@ namespace SoccerReplay
                     id.body.label.color = new Color(1f, 1f, 1f, Mathf.Max(a, 0.001f));
                 }
 
-                id.body.UpdateMotion(id.displayPos, id.vel, lastBall, 1f, dt, jump, bodyMotion);
+                var face = ApplyAction(id.body, id.actions, out var idNudge);
+                id.body.UpdateMotion(id.displayPos + idNudge, id.vel, lastBall, 1f, dt, jump, bodyMotion, face);
 
                 if (!id.referee)
                 {
@@ -609,7 +770,8 @@ namespace SoccerReplay
                     color = team == 0 ? homeKeeperColor : awayKeeperColor,
                 };
                 k.mat = PitchBuilder.MakeTransparentMaterial(k.color);
-                k.trimMat = PitchBuilder.MakeTransparentMaterial(new Color(0.12f, 0.12f, 0.15f));
+                // Light joints read better than dark ones on the bright keeper kits
+                k.trimMat = PitchBuilder.MakeTransparentMaterial(new Color(0.9f, 0.9f, 0.93f));
                 k.body = PlayerBody.Create($"Keeper team {team}", parent, k.mat, k.trimMat, "", showLabels,
                                            ModelOrNull, KeeperController);
                 k.label = k.body.label;
@@ -700,7 +862,8 @@ namespace SoccerReplay
                     k.vel = Vector2.Lerp(k.vel, inst, 1f - Mathf.Exp(-6f * dt));
                 }
                 k.prevDisplayPos = k.displayPos;
-                k.body.UpdateMotion(k.displayPos, k.vel, ball, 1f, dt, snapKeepers, bodyMotion);
+                var keeperFace = ApplyAction(k.body, k.actions, out var keeperNudge);
+                k.body.UpdateMotion(k.displayPos + keeperNudge, k.vel, ball, 1f, dt, snapKeepers, bodyMotion, keeperFace);
 
                 var c = k.color;
                 c.a = Mathf.Lerp(estimatedAlpha, 1f, w);
@@ -780,6 +943,7 @@ namespace SoccerReplay
         void ApplyTime()
         {
             visibleCount = 0;
+            actionsPlaying = 0;
 
             // Ball first, so players can turn to face its current position.
             // In a fitted flight, use the smooth arc; otherwise the frame-by-frame track.
@@ -820,7 +984,9 @@ namespace SoccerReplay
                 }
 
                 Vector2 vel = track.VelocityAt(time, bodyMotion.velocityWindow);
-                body.UpdateMotion(p, vel, lastBall, fade, motionDt, motionSnap || justAppeared, bodyMotion);
+                actionsByPlayer.TryGetValue(track.id, out var trackActions);
+                var trackFace = ApplyAction(body, trackActions, out var trackNudge);
+                body.UpdateMotion(p + trackNudge, vel, lastBall, fade, motionDt, motionSnap || justAppeared, bodyMotion, trackFace);
             }
 
             UpdateIdentities(motionDt, motionSnap);
