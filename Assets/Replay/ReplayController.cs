@@ -90,6 +90,19 @@ namespace SoccerReplay
         float[][] centroidX, centroidY;
         const float CentroidStep = 0.1f;
 
+        [Header("Animated players")]
+        [Tooltip("Use the animated humanoid model instead of capsules")]
+        public bool useAnimatedPlayers = true;
+        [Tooltip("Humanoid character model (Y Bot)")]
+        public GameObject playerModel;
+        [Tooltip("Animator for outfield players and referees (idle + 8-direction jog blend tree)")]
+        public RuntimeAnimatorController playerAnimator;
+        [Tooltip("Animator for goalkeepers (goalkeeper idle); falls back to the player animator")]
+        public RuntimeAnimatorController keeperAnimator;
+
+        GameObject ModelOrNull => useAnimatedPlayers && playerModel != null && playerAnimator != null ? playerModel : null;
+        RuntimeAnimatorController KeeperController => keeperAnimator != null ? keeperAnimator : playerAnimator;
+
         [Header("Body motion")]
         public BodyMotionSettings bodyMotion = new BodyMotionSettings();
 
@@ -263,7 +276,8 @@ namespace SoccerReplay
                     id.ghostTrim = PitchBuilder.MakeTransparentMaterial(id.trimColor);
                     id.ghostShorts = PitchBuilder.MakeTransparentMaterial(new Color(0.1f, 0.1f, 0.14f));
                     string kind = first.referee ? "Referee" : "Person";
-                    id.body = PlayerBody.Create($"{kind} {first.id}", actors, id.solidMat, id.solidTrim, "", showLabels);
+                    id.body = PlayerBody.Create($"{kind} {first.id}", actors, id.solidMat, id.solidTrim, "", showLabels,
+                                                ModelOrNull, first.goalkeeper ? KeeperController : playerAnimator);
                     id.body.SetActive(false);
                     identities.Add(id);
                 }
@@ -280,7 +294,8 @@ namespace SoccerReplay
                 var trim = tr.referee ? refTrimMat : tr.team == 1 ? awayTrimMat : homeTrimMat;
                 string kind = tr.referee ? "Referee" : tr.goalkeeper ? "GK" : "Player";
                 var body = PlayerBody.Create($"{kind} {tr.id}", actors, mat, trim,
-                                             tr.referee ? "REF" : tr.id.ToString(), showLabels);
+                                             tr.referee ? "REF" : tr.id.ToString(), showLabels,
+                                             ModelOrNull, tr.goalkeeper ? KeeperController : playerAnimator);
                 body.SetActive(false);
                 players.Add((tr, body));
             }
@@ -595,7 +610,8 @@ namespace SoccerReplay
                 };
                 k.mat = PitchBuilder.MakeTransparentMaterial(k.color);
                 k.trimMat = PitchBuilder.MakeTransparentMaterial(new Color(0.12f, 0.12f, 0.15f));
-                k.body = PlayerBody.Create($"Keeper team {team}", parent, k.mat, k.trimMat, "", showLabels);
+                k.body = PlayerBody.Create($"Keeper team {team}", parent, k.mat, k.trimMat, "", showLabels,
+                                           ModelOrNull, KeeperController);
                 k.label = k.body.label;
 
                 keepers.Add(k);
