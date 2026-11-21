@@ -8,6 +8,9 @@
 /[Uu]ser[Ss]ettings/
 /[Mm]emoryCaptures/
 /[Rr]ecordings/
+# Unity crash-recovery scene backups
+/[Aa]ssets/_Recovery/
+/[Aa]ssets/_Recovery.meta
 
 # Never ignore Asset meta data
 !/[Aa]ssets/**/*.meta

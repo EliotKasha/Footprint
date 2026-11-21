@@ -119,7 +119,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &219655819
+--- !u!1 &69672480
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -127,9 +127,9 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 219655822}
-  - component: {fileID: 219655821}
-  - component: {fileID: 219655820}
+  - component: {fileID: 69672483}
+  - component: {fileID: 69672482}
+  - component: {fileID: 69672481}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -137,21 +137,21 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!81 &219655820
+--- !u!81 &69672481
 AudioListener:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 219655819}
+  m_GameObject: {fileID: 69672480}
   m_Enabled: 1
---- !u!20 &219655821
+--- !u!20 &69672482
 Camera:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 219655819}
+  m_GameObject: {fileID: 69672480}
   m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 1
@@ -196,13 +196,13 @@ Camera:
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
---- !u!4 &219655822
+--- !u!4 &69672483
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 219655819}
+  m_GameObject: {fileID: 69672480}
   serializedVersion: 2
   m_LocalRotation: {x: 0.18361904, y: 0, z: 0, w: 0.9829975}
   m_LocalPosition: {x: 0, y: 24, z: -62}
@@ -211,7 +211,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &645785990
+--- !u!1 &299367092
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -219,78 +219,9 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 645785992}
-  - component: {fileID: 645785991}
-  m_Layer: 0
-  m_Name: Replay
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &645785991
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 645785990}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 76dadecb6255c2e47b33c9cb6ea5560b, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::SoccerReplay.ReplayController
-  matchFile: matches/match_events.json
-  origin: 0
-  flipY: 0
-  minTrackSamples: 8
-  smoothRadius: 2
-  playerMaxGap: 0.4
-  ballMaxGap: 1
-  homeColor: {r: 0.85, g: 0.15, b: 0.15, a: 1}
-  awayColor: {r: 0.15, g: 0.35, b: 0.9, a: 1}
-  homeKeeperColor: {r: 1, g: 0.85, b: 0.1, a: 1}
-  awayKeeperColor: {r: 0.95, g: 0.3, b: 0.85, a: 1}
-  estimateKeepers: 1
-  autoDetectSides: 1
-  homeDefendsWest: 1
-  keeperBlendTime: 2.5
-  estimatedAlpha: 0.55
-  keeperDriftFactor: 0.2
-  keeperMaxDrift: 2.5
-  keeperMaxSpeed: 3
-  keeperMinDepth: 3
-  keeperMaxDepth: 12
-  showLabels: 1
-  speed: 1
-  loop: 1
-  cameraMode: 0
---- !u!4 &645785992
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 645785990}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1996370473
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1996370476}
-  - component: {fileID: 1996370475}
-  - component: {fileID: 1996370474}
+  - component: {fileID: 299367095}
+  - component: {fileID: 299367094}
+  - component: {fileID: 299367093}
   m_Layer: 0
   m_Name: Directional Light
   m_TagString: Untagged
@@ -298,13 +229,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1996370474
+--- !u!114 &299367093
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1996370473}
+  m_GameObject: {fileID: 299367092}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 474bcb49853aa07438625e644c072ee6, type: 3}
@@ -327,13 +258,13 @@ MonoBehaviour:
   m_ShadowLayerMask: 1
   m_RenderingLayers: 1
   m_ShadowRenderingLayers: 1
---- !u!108 &1996370475
+--- !u!108 &299367094
 Light:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1996370473}
+  m_GameObject: {fileID: 299367092}
   m_Enabled: 1
   serializedVersion: 13
   m_Type: 1
@@ -392,13 +323,13 @@ Light:
   m_LightUnit: 1
   m_LuxAtDistance: 1
   m_EnableSpotReflector: 1
---- !u!4 &1996370476
+--- !u!4 &299367095
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1996370473}
+  m_GameObject: {fileID: 299367092}
   serializedVersion: 2
   m_LocalRotation: {x: 0.44601488, y: -0.22957529, z: 0.11950933, w: 0.85678667}
   m_LocalPosition: {x: 0, y: 3, z: 0}
@@ -407,10 +338,132 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 50, y: -30, z: 0}
+--- !u!1 &1939742394
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1939742397}
+  - component: {fileID: 1939742396}
+  - component: {fileID: 1939742395}
+  m_Layer: 0
+  m_Name: Replay
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1939742395
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1939742394}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3fc32565da6b0134d8d4a7abdcd9e71a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SoccerReplay.StadiumBuilder
+  runoffSide: 8
+  runoffEnd: 10
+  cornerRadius: 10
+  lowerRows: 15
+  upperRows: 18
+  stepDepth: 0.8
+  stepHeight: 0.42
+  lowerBase: 1.2
+  concourseGap: 2.5
+  concourseHeight: 3
+  aisleEvery: 9
+  aisleWidth: 1.2
+  homeSeat: {r: 0.72, g: 0.12, b: 0.13, a: 1}
+  awaySeat: {r: 0.16, g: 0.3, b: 0.78, a: 1}
+  concrete: {r: 0.58, g: 0.58, b: 0.6, a: 1}
+  darkConcrete: {r: 0.3, g: 0.3, b: 0.32, a: 1}
+  roofColor: {r: 0.62, g: 0.64, b: 0.67, a: 1}
+  exteriorColor: {r: 0.4, g: 0.41, b: 0.44, a: 1}
+  apronGrass: {r: 0.15, g: 0.4, b: 0.17, a: 1}
+  boardColor: {r: 0.06, g: 0.09, b: 0.2, a: 1}
+  crowd: 1
+  crowdFill: 0.85
+  seatSpacing: 0.9
+  bobbingFans: 0.6
+  skybox: {fileID: 0}
+  postProcessing: 1
+  fog: 1
+  sunElevation: 32
+  sunAzimuth: -20
+  boardTexts:
+  - CODE JAM 2026
+  - SOCCER VISION AI
+  - TRACKED BY CV
+  - LIVE TACTICS
+  - 3D MATCH REPLAY
+  - HOME  vs  AWAY
+--- !u!114 &1939742396
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1939742394}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 76dadecb6255c2e47b33c9cb6ea5560b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SoccerReplay.ReplayController
+  matchFile: matches/match_events_v2.json
+  origin: 0
+  flipY: 0
+  minTrackSamples: 8
+  smoothRadius: 2
+  smoothWindow: 0.2
+  maxPlayerSpeed: 11
+  correctCameraShifts: 1
+  fadeTime: 0.25
+  playerMaxGap: 1
+  ballMaxGap: 1
+  homeColor: {r: 0.85, g: 0.15, b: 0.15, a: 1}
+  awayColor: {r: 0.15, g: 0.35, b: 0.9, a: 1}
+  homeKeeperColor: {r: 1, g: 0.85, b: 0.1, a: 1}
+  awayKeeperColor: {r: 0.95, g: 0.3, b: 0.85, a: 1}
+  estimateKeepers: 1
+  autoDetectSides: 1
+  homeDefendsWest: 1
+  keeperBlendTime: 2.5
+  estimatedAlpha: 0.55
+  keeperDriftFactor: 0.2
+  keeperMaxDrift: 2.5
+  keeperMaxSpeed: 3
+  keeperMinDepth: 3
+  keeperMaxDepth: 12
+  showLabels: 1
+  speed: 1
+  loop: 1
+  cameraMode: 0
+--- !u!4 &1939742397
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1939742394}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 219655822}
-  - {fileID: 1996370476}
-  - {fileID: 645785992}
+  - {fileID: 69672483}
+  - {fileID: 299367095}
+  - {fileID: 1939742397}

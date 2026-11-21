@@ -29,6 +29,7 @@ namespace SoccerReplay.EditorTools
 
             var replay = new GameObject("Replay");
             replay.AddComponent<ReplayController>();
+            replay.AddComponent<StadiumBuilder>();
             Selection.activeGameObject = replay;
 
             EditorSceneManager.SaveScene(scene, ScenePath);

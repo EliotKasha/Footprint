@@ -16,13 +16,23 @@ namespace SoccerReplay
 
         [Header("Data")]
         [Tooltip("Path inside Assets/StreamingAssets")]
-        public string matchFile = "matches/match.json";
+        public string matchFile = "matches/match_events_v2.json";
         public OriginMode origin = OriginMode.Auto;
         [Tooltip("Mirror the pitch across its length if the replay looks left/right swapped vs. the video")]
         public bool flipY = false;
         [Tooltip("Tracks with fewer samples than this are treated as tracker noise and hidden")]
         public int minTrackSamples = 8;
-        [Range(0, 5)] public int smoothRadius = 2;
+        [Range(0, 5)] public int smoothRadius = 2; // legacy, superseded by smoothWindow
+
+        [Header("Data cleanup")]
+        [Tooltip("Seconds either side used to smooth jitter (works at any frame rate)")]
+        [Range(0f, 0.6f)] public float smoothWindow = 0.2f;
+        [Tooltip("Movement faster than this (m/s) is treated as a tracking error, not a real run")]
+        public float maxPlayerSpeed = 11f;
+        [Tooltip("Cancel moments where every player jumps together (camera calibration jumps)")]
+        public bool correctCameraShifts = true;
+        [Tooltip("Seconds players take to fade in/out when tracking starts or stops")]
+        public float fadeTime = 0.25f;
         [Tooltip("Longest gap (seconds) a player is interpolated across before being hidden")]
         public float playerMaxGap = 0.4f;
         [Tooltip("Longest gap (seconds) the ball is interpolated across before being hidden")]
@@ -89,11 +99,26 @@ namespace SoccerReplay
         Vector2 lastBall;
         float lastBallHeight;
 
+        StadiumBuilder stadium;
         Transform ballShadow;
         Material ballShadowMat;
         Transform ownerRing;
         LineRenderer passLine;
-        readonly Dictionary<int, Transform> actorsById = new Dictionary<int, Transform>();
+        readonly Dictionary<int, List<Transform>> actorsById = new Dictionary<int, List<Transform>>();
+        static readonly Vector3 PlayerScale = new Vector3(0.7f, 0.9f, 0.7f);
+
+        void RegisterActor(int id, Transform t)
+        {
+            if (!actorsById.TryGetValue(id, out var list)) actorsById[id] = list = new List<Transform>();
+            list.Add(t);
+        }
+
+        Transform ActiveActor(int id)
+        {
+            if (!actorsById.TryGetValue(id, out var list)) return null;
+            foreach (var t in list) if (t.gameObject.activeInHierarchy) return t;
+            return null;
+        }
         const int PassLinePoints = 32;
         const float BallRadius = 0.25f;
 
@@ -106,7 +131,13 @@ namespace SoccerReplay
             string path = Path.Combine(Application.streamingAssetsPath, matchFile);
             try
             {
-                data = MatchReplayData.FromJson(File.ReadAllText(path), origin, flipY, minTrackSamples, smoothRadius);
+                var clean = new MatchReplayData.CleanOptions
+                {
+                    smoothWindow = smoothWindow,
+                    maxPlayerSpeed = maxPlayerSpeed,
+                    correctCameraShifts = correctCameraShifts,
+                };
+                data = MatchReplayData.FromJson(File.ReadAllText(path), origin, flipY, minTrackSamples, smoothRadius, clean);
             }
             catch (System.Exception e)
             {
@@ -119,8 +150,13 @@ namespace SoccerReplay
                       $"({data.droppedShortTracks} of {data.rawIdCount} IDs dropped as noise, " +
                       $"{data.players.FindAll(p => p.goalkeeper).Count} goalkeepers), " +
                       $"{data.ball.Count} ball samples, origin={(data.cornerOrigin ? "corner" : "center")}");
+            Debug.Log($"[Replay] Cleanup: {data.cameraShiftsCorrected} camera-jump frames corrected, " +
+                      $"{data.spikesRemoved} glitch samples removed, {data.idSwapsSplit} ID swaps split");
 
             PitchBuilder.Build(transform, data.length, data.width);
+            stadium = GetComponent<StadiumBuilder>();
+            if (stadium != null && stadium.enabled) stadium.Build(data.length, data.width, cam, homeColor, awayColor);
+            else stadium = null;
             BuildActors();
             time = data.startTime;
             if (cam != null) SnapCamera();
@@ -130,6 +166,7 @@ namespace SoccerReplay
         {
             var homeMat = PitchBuilder.MakeMaterial(homeColor);
             var awayMat = PitchBuilder.MakeMaterial(awayColor);
+            var refMat = PitchBuilder.MakeMaterial(new Color(0.08f, 0.08f, 0.09f));
             var homeGkMat = PitchBuilder.MakeMaterial(homeKeeperColor);
             var awayGkMat = PitchBuilder.MakeMaterial(awayKeeperColor);
             var actors = new GameObject("Players").transform;
@@ -138,8 +175,11 @@ namespace SoccerReplay
             foreach (var tr in data.players)
             {
                 if (estimateKeepers && tr.goalkeeper) continue; // keepers get their own handling below
-                var mat = tr.goalkeeper ? (tr.team == 1 ? awayGkMat : homeGkMat) : (tr.team == 1 ? awayMat : homeMat);
-                var body = PitchBuilder.Primitive(PrimitiveType.Capsule, $"{(tr.goalkeeper ? "GK" : "Player")} {tr.id}", actors, mat);
+                var mat = tr.referee ? refMat
+                        : tr.goalkeeper ? (tr.team == 1 ? awayGkMat : homeGkMat)
+                        : (tr.team == 1 ? awayMat : homeMat);
+                string kind = tr.referee ? "Referee" : tr.goalkeeper ? "GK" : "Player";
+                var body = PitchBuilder.Primitive(PrimitiveType.Capsule, $"{kind} {tr.id}", actors, mat);
                 body.transform.localScale = new Vector3(0.7f, 0.9f, 0.7f); // ~1.8m tall
 
                 Transform label = null;
@@ -150,7 +190,7 @@ namespace SoccerReplay
                     lgo.transform.localPosition = new Vector3(0f, 1.6f, 0f);
                     lgo.transform.localScale = new Vector3(1f / 0.7f, 1f / 0.9f, 1f / 0.7f); // undo body scale
                     var tmp = lgo.AddComponent<TextMeshPro>();
-                    tmp.text = tr.id.ToString();
+                    tmp.text = tr.referee ? "REF" : tr.id.ToString();
                     tmp.fontSize = 8;
                     tmp.alignment = TextAlignmentOptions.Center;
                     tmp.color = Color.white;
@@ -189,21 +229,43 @@ namespace SoccerReplay
             passLine.useWorldSpace = false;
             passLine.positionCount = PassLinePoints;
             passLine.widthMultiplier = 0.25f;
-            passLine.material = PitchBuilder.MakeTransparentMaterial(new Color(1f, 1f, 1f, 0.8f));
+            var unlit = Shader.Find("Universal Render Pipeline/Unlit");
+            passLine.material = unlit != null ? new Material(unlit) : PitchBuilder.MakeTransparentMaterial(Color.white);
+            if (unlit != null)
+            {
+                // Transparent unlit so the arc stays pure white regardless of lighting
+                var m = passLine.material;
+                m.SetFloat("_Surface", 1f);
+                m.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                m.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                m.SetFloat("_ZWrite", 0f);
+                m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            }
             passLine.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             passLine.enabled = false;
 
-            foreach (var (track, go, _) in players) actorsById[track.id] = go;
-            foreach (var k in keepers) if (k.track != null) actorsById[k.track.id] = k.go;
+            foreach (var (track, go, _) in players) RegisterActor(track.id, go);
+            foreach (var k in keepers) if (k.track != null) RegisterActor(k.track.id, k.go);
         }
 
         void BuildKeepers(Transform parent)
         {
-            // Longest keeper-labelled track per team
+            // Stitch every keeper-labelled piece of a team into one track (keepers don't swap with anyone)
             var tracks = new Track[2];
-            foreach (var tr in data.players)
-                if (tr.goalkeeper && (tracks[tr.team] == null || tr.Count > tracks[tr.team].Count))
-                    tracks[tr.team] = tr;
+            for (int team = 0; team < 2; team++)
+            {
+                var pieces = data.players.FindAll(p => p.goalkeeper && p.team == team);
+                if (pieces.Count == 0) continue;
+                var samples = new List<(float t, Vector2 p)>();
+                foreach (var piece in pieces)
+                    for (int i = 0; i < piece.Count; i++) samples.Add((piece.times[i], piece.positions[i]));
+                samples.Sort((a, b) => a.t.CompareTo(b.t));
+                var merged = new Track { id = pieces[0].id, team = team, goalkeeper = true };
+                foreach (var s in samples)
+                    if (merged.Count == 0 || s.t > merged.End) merged.Add(s.t, s.p);
+                tracks[team] = merged;
+            }
 
             // Which goal does each team defend?
             int homeSide = homeDefendsWest ? -1 : 1;
@@ -390,8 +452,20 @@ namespace SoccerReplay
                 bool vis = track.TrySample(time, playerMaxGap, out var p);
                 if (go.gameObject.activeSelf != vis) go.gameObject.SetActive(vis);
                 if (!vis) continue;
-                visibleCount++;
+                if (!track.referee) visibleCount++;
                 go.localPosition = new Vector3(p.x, 0.9f, p.y);
+
+                // Grow in / shrink out at the ends of a track instead of popping
+                // (except at the very start/end of the clip, where tracks are simply cut off)
+                float fade = 1f;
+                if (fadeTime > 0f)
+                {
+                    float fin = track.Start - data.startTime < 0.05f ? 1f : (time - track.Start) / fadeTime;
+                    float fout = data.endTime - track.End < 0.05f ? 1f : (track.End - time) / fadeTime;
+                    fade = Mathf.Clamp01(Mathf.Min(fin, fout));
+                    fade = fade * fade * (3f - 2f * fade);
+                }
+                go.localScale = PlayerScale * Mathf.Max(0.001f, fade);
             }
 
             ballVisible = data.ball.Count > 0 && data.ball.TrySample(time, ballMaxGap, out lastBall);
@@ -418,11 +492,12 @@ namespace SoccerReplay
         {
             // Possession ring follows the owner while they're on screen
             int owner = data.OwnerAt(time);
-            bool showRing = owner >= 0 && actorsById.TryGetValue(owner, out var ownerGo) && ownerGo.gameObject.activeInHierarchy;
+            var ownerGo = owner >= 0 ? ActiveActor(owner) : null;
+            bool showRing = ownerGo != null;
             if (ownerRing.gameObject.activeSelf != showRing) ownerRing.gameObject.SetActive(showRing);
             if (showRing)
             {
-                var p = actorsById[owner].localPosition;
+                var p = ownerGo.localPosition;
                 ownerRing.localPosition = new Vector3(p.x, 0.05f, p.z);
             }
 
@@ -484,11 +559,16 @@ namespace SoccerReplay
                     look = Vector3.zero;
                     break;
                 case CameraMode.FollowBall:
-                    pos = new Vector3(focus.x, 14f, focus.y - 20f);
+                    // Stay in front of the near stand when there is one
+                    float minZ = stadium != null ? -stadium.FrontHalfWidth + 1f : float.MinValue;
+                    pos = new Vector3(focus.x, 14f, Mathf.Max(focus.y - 20f, minZ));
                     look = new Vector3(focus.x, 0f, focus.y);
                     break;
-                default: // Broadcast: high on the near touchline, panning with play
-                    pos = new Vector3(focus.x * 0.7f, 24f, -hw - 28f);
+                default: // Broadcast: gantry at the front of the near stand, panning with play
+                    if (stadium != null)
+                        pos = new Vector3(focus.x * 0.6f, 21f, -stadium.FrontHalfWidth - 6f);
+                    else
+                        pos = new Vector3(focus.x * 0.7f, 24f, -hw - 28f);
                     look = new Vector3(focus.x * 0.85f, 0f, focus.y * 0.3f);
                     break;
             }

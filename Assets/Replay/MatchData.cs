@@ -78,6 +78,7 @@ namespace SoccerReplay
         public int id;
         public int team;
         public bool goalkeeper;
+        public bool referee;
         public readonly List<float> times = new List<float>();
         public readonly List<Vector2> positions = new List<Vector2>();
         public readonly List<float> heights = new List<float>(); // optional, used by the ball
@@ -101,6 +102,83 @@ namespace SoccerReplay
         {
             times.Add(t);
             positions.Add(p);
+        }
+
+        /// <summary>Triangular-weighted smoothing over ±window seconds, independent of frame rate.</summary>
+        public void SmoothByTime(float window)
+        {
+            if (window <= 0f || Count < 3) return;
+            var smoothed = new Vector2[Count];
+            int lo = 0;
+            for (int i = 0; i < Count; i++)
+            {
+                while (times[lo] < times[i] - window) lo++;
+                Vector2 sum = Vector2.zero;
+                float wsum = 0f;
+                for (int k = lo; k < Count && times[k] <= times[i] + window; k++)
+                {
+                    float w = 1f - Mathf.Abs(times[k] - times[i]) / (window * 1.0001f);
+                    sum += positions[k] * w;
+                    wsum += w;
+                }
+                smoothed[i] = wsum > 0f ? sum / wsum : positions[i];
+            }
+            for (int i = 0; i < Count; i++) positions[i] = smoothed[i];
+        }
+
+        /// <summary>Drops single samples that jump away and straight back (detection glitches). Returns how many were removed.</summary>
+        public int RemoveSpikes(float maxSpeed)
+        {
+            if (Count < 3) return 0;
+            var keep = new bool[Count];
+            for (int i = 0; i < Count; i++) keep[i] = true;
+            for (int i = 1; i < Count - 1; i++)
+            {
+                float dt1 = times[i] - times[i - 1], dt2 = times[i + 1] - times[i];
+                if (dt1 <= 0f || dt2 <= 0f || dt1 > 0.2f || dt2 > 0.2f) continue;
+                float v1 = Vector2.Distance(positions[i], positions[i - 1]) / dt1;
+                float v2 = Vector2.Distance(positions[i + 1], positions[i]) / dt2;
+                float vSkip = Vector2.Distance(positions[i + 1], positions[i - 1]) / (dt1 + dt2);
+                if (v1 > maxSpeed && v2 > maxSpeed && vSkip < maxSpeed) keep[i] = false;
+            }
+            int removed = 0;
+            for (int i = Count - 1; i >= 0; i--)
+            {
+                if (keep[i]) continue;
+                times.RemoveAt(i); positions.RemoveAt(i);
+                if (heights.Count > i) heights.RemoveAt(i);
+                removed++;
+            }
+            return removed;
+        }
+
+        /// <summary>
+        /// Splits the track wherever it jumps faster than a person can run (an ID swap) or has a long gap,
+        /// so the replay never draws someone zooming across the pitch.
+        /// </summary>
+        public List<Track> SplitOnJumps(float maxSpeed, float maxGap)
+        {
+            var parts = new List<Track>();
+            var cur = new Track { id = id, team = team, goalkeeper = goalkeeper, referee = referee };
+            for (int i = 0; i < Count; i++)
+            {
+                if (cur.Count > 0)
+                {
+                    float dt = times[i] - cur.End;
+                    // A swap is a move further than a sprinter could cover in that time, plus ~1 m of
+                    // detection jitter (at 30 fps normal jitter alone can look like 10+ m/s)
+                    float dist = Vector2.Distance(positions[i], cur.positions[cur.Count - 1]);
+                    bool jump = dist > maxSpeed * Mathf.Max(0f, dt) + 1.2f;
+                    if (dt > maxGap || jump)
+                    {
+                        parts.Add(cur);
+                        cur = new Track { id = id, team = team, goalkeeper = goalkeeper, referee = referee };
+                    }
+                }
+                cur.Add(times[i], positions[i]);
+            }
+            if (cur.Count > 0) parts.Add(cur);
+            return parts;
         }
 
         /// <summary>Moving-average smoothing to remove detection jitter. Only averages samples close in time.</summary>
@@ -222,10 +300,26 @@ namespace SoccerReplay
             return frameOwners[Mathf.Min(i, frameOwners.Length - 1)];
         }
 
-        public static MatchReplayData FromJson(string json, OriginMode origin, bool flipY, int minTrackSamples, int smoothRadius)
+        public int cameraShiftsCorrected;
+        public int spikesRemoved;
+        public int idSwapsSplit;
+
+        public class CleanOptions
         {
+            public float smoothWindow = 0.2f;       // seconds either side
+            public float maxPlayerSpeed = 11f;      // m/s; faster movement is treated as an error
+            public bool correctCameraShifts = true; // cancel jumps where many players shift together
+            public float shiftRecovery = 2f;        // seconds over which a cancelled shift eases back
+            public float splitGap = 1.5f;           // seconds; longer gaps start a new track
+        }
+
+        public static MatchReplayData FromJson(string json, OriginMode origin, bool flipY, int minTrackSamples, int smoothRadius, CleanOptions clean = null)
+        {
+            clean ??= new CleanOptions();
             // JsonUtility can't read null into an int, so map "owner": null to -1
             json = System.Text.RegularExpressions.Regex.Replace(json, "\"owner\"\\s*:\\s*null", "\"owner\": -1");
+            // Referees (and anything unassigned) come with "team": null
+            json = System.Text.RegularExpressions.Regex.Replace(json, "\"team\"\\s*:\\s*null", "\"team\": -1");
             var file = JsonUtility.FromJson<MatchFile>(json);
             if (file == null || file.frames == null || file.frames.Count == 0)
                 throw new Exception("Match file has no frames.");
@@ -270,10 +364,48 @@ namespace SoccerReplay
             var tracks = new Dictionary<int, Track>();
             var teamVotes = new Dictionary<int, int[]>();
             var gkVotes = new Dictionary<int, int>();
+            var refVotes = new Dictionary<int, int>();
             data.ball = new Track { id = -1, team = -1 };
 
-            foreach (var f in file.frames)
+            // Camera calibration jumps move everyone at once. Detect frames where the typical (median)
+            // player moves faster than people can collectively run, cancel that shift, and let the
+            // correction ease out over a couple of seconds so it becomes a gentle slide.
+            var offsets = new Vector2[file.frames.Count];
+            if (clean.correctCameraShifts)
             {
+                Dictionary<int, Vector2> prev = null;
+                float prevT = 0f;
+                Vector2 off = Vector2.zero;
+                var dxs = new List<float>();
+                var dys = new List<float>();
+                for (int fi = 0; fi < file.frames.Count; fi++)
+                {
+                    var f = file.frames[fi];
+                    var cur = new Dictionary<int, Vector2>();
+                    if (f.players != null) foreach (var p in f.players) cur[p.id] = ToCentered(p.x, p.y);
+                    if (prev != null)
+                    {
+                        float dt = f.t - prevT;
+                        off *= Mathf.Exp(-Mathf.Max(0f, dt) / Mathf.Max(0.1f, clean.shiftRecovery));
+                        dxs.Clear(); dys.Clear();
+                        foreach (var kv in cur)
+                            if (prev.TryGetValue(kv.Key, out var pp)) { dxs.Add(kv.Value.x - pp.x); dys.Add(kv.Value.y - pp.y); }
+                        if (dt > 0f && dt < 0.15f && dxs.Count >= 5)
+                        {
+                            dxs.Sort(); dys.Sort();
+                            var med = new Vector2(dxs[dxs.Count / 2], dys[dys.Count / 2]);
+                            if (med.magnitude / dt > clean.maxPlayerSpeed * 0.6f) { off -= med; data.cameraShiftsCorrected++; }
+                        }
+                    }
+                    offsets[fi] = off;
+                    prev = cur;
+                    prevT = f.t;
+                }
+            }
+
+            for (int fi = 0; fi < file.frames.Count; fi++)
+            {
+                var f = file.frames[fi];
                 if (f.players != null)
                 {
                     foreach (var p in f.players)
@@ -284,14 +416,15 @@ namespace SoccerReplay
                             tracks[p.id] = tr;
                             teamVotes[p.id] = new int[2];
                         }
-                        tr.Add(f.t, ToCentered(p.x, p.y));
+                        tr.Add(f.t, ToCentered(p.x, p.y) + offsets[fi]);
                         if (p.team == 0 || p.team == 1) teamVotes[p.id][p.team]++;
                         if (p.role == "goalkeeper") gkVotes[p.id] = (gkVotes.TryGetValue(p.id, out var g) ? g : 0) + 1;
+                        if (p.role == "referee") refVotes[p.id] = (refVotes.TryGetValue(p.id, out var rv) ? rv : 0) + 1;
                     }
                 }
                 if (f.ball != null && f.ball.Length >= 2)
                 {
-                    data.ball.Add(f.t, ToCentered(f.ball[0], f.ball[1]));
+                    data.ball.Add(f.t, ToCentered(f.ball[0], f.ball[1]) + offsets[fi]);
                     data.ball.heights.Add(f.ball.Length >= 3 ? Mathf.Max(0f, f.ball[2]) : 0f);
                     if (f.ball.Length >= 3) data.ballHasHeight = true;
                 }
@@ -336,10 +469,22 @@ namespace SoccerReplay
                 var votes = teamVotes[kv.Key];
                 tr.team = votes[1] > votes[0] ? 1 : 0;
                 tr.goalkeeper = gkVotes.TryGetValue(kv.Key, out var gk) && gk * 2 > tr.Count;
-                tr.Smooth(smoothRadius, 0.35f);
-                data.players.Add(tr);
+                tr.referee = refVotes.TryGetValue(kv.Key, out var rf) && rf * 2 > tr.Count;
+                if (tr.referee) { tr.team = -1; tr.goalkeeper = false; }
+
+                // Clean: drop one-frame glitches, then split where an ID jumps to a different person
+                data.spikesRemoved += tr.RemoveSpikes(clean.maxPlayerSpeed);
+                var parts = tr.SplitOnJumps(clean.maxPlayerSpeed, clean.splitGap);
+                data.idSwapsSplit += parts.Count - 1;
+                foreach (var part in parts)
+                {
+                    if (part.Count < minTrackSamples) { data.droppedShortTracks++; continue; }
+                    part.SmoothByTime(clean.smoothWindow);
+                    data.players.Add(part);
+                }
             }
-            data.ball.Smooth(1, 0.25f);
+            data.spikesRemoved += data.ball.RemoveSpikes(40f); // the ball can genuinely move fast
+            data.ball.SmoothByTime(Mathf.Min(0.1f, clean.smoothWindow));
             return data;
         }
     }
