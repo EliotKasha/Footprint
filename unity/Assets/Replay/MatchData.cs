@@ -47,11 +47,37 @@ namespace SoccerReplay
         public int from, to;
         public float[] start, end;
         public float length, max_height;
-        public bool completed, aerial;
+        public bool completed, aerial, estimated;
         public int team;
 
-        public float StartTime => type == "pass" ? t_start : t;
-        public float EndTime => type == "pass" ? t_end : t + duration;
+        /// <summary>Events that travel from start to end over t_start..t_end (passes, lofted balls).</summary>
+        public bool IsFlight => type == "pass" || type == "aerial_ball";
+        public float StartTime => IsFlight ? t_start : t;
+        public float EndTime => IsFlight ? t_end : t + duration;
+    }
+
+    /// <summary>A fitted ball flight from the CV pipeline: takeoff -> landing along a ballistic arc.</summary>
+    [Serializable]
+    public class BallFlight
+    {
+        public float t_takeoff, t_land, max_height;
+        public float[] start, land;   // ground positions [x, y]
+        public string method, kind;   // e.g. "3d" / "estimated", "free ball"
+        public float fit_px;          // fit error in pixels (3d flights)
+
+        public float Duration => t_land - t_takeoff;
+        public bool Contains(float t) => t >= t_takeoff && t <= t_land && Duration > 0.01f;
+
+        /// <summary>
+        /// Position on the arc: straight-line ground track at constant speed, and a parabola in time
+        /// for height (what gravity produces), touching the ground exactly at takeoff and landing.
+        /// </summary>
+        public void Sample(float t, out Vector2 ground, out float height)
+        {
+            float u = Mathf.Clamp01((t - t_takeoff) / Duration);
+            ground = Vector2.Lerp(new Vector2(start[0], start[1]), new Vector2(land[0], land[1]), u);
+            height = 4f * max_height * u * (1f - u);
+        }
     }
 
     [Serializable]
@@ -61,6 +87,7 @@ namespace SoccerReplay
         public float fps;
         public List<FrameData> frames;
         public List<MatchEvent> events;
+        public List<BallFlight> ball_flights;
     }
 
     public enum OriginMode
@@ -299,7 +326,15 @@ namespace SoccerReplay
         public Track ball;
         public bool ballHasHeight;
         public List<MatchEvent> events = new List<MatchEvent>();
+        public List<BallFlight> flights = new List<BallFlight>();
         float[] frameTimes;
+
+        /// <summary>The fitted flight the ball is on at time t, or null.</summary>
+        public BallFlight FlightAt(float t)
+        {
+            foreach (var f in flights) if (f.Contains(t)) return f;
+            return null;
+        }
         int[] frameOwners;
 
         public float Duration => endTime - startTime;
@@ -331,8 +366,8 @@ namespace SoccerReplay
             clean ??= new CleanOptions();
             // JsonUtility can't read null into an int, so map "owner": null to -1
             json = System.Text.RegularExpressions.Regex.Replace(json, "\"owner\"\\s*:\\s*null", "\"owner\": -1");
-            // Referees (and anything unassigned) come with "team": null
-            json = System.Text.RegularExpressions.Regex.Replace(json, "\"team\"\\s*:\\s*null", "\"team\": -1");
+            // Referees, unattributed events (e.g. aerial_ball) etc. use null for int IDs
+            json = System.Text.RegularExpressions.Regex.Replace(json, "\"(team|player|from|to)\"\\s*:\\s*null", "\"$1\": -1");
             var file = JsonUtility.FromJson<MatchFile>(json);
             if (file == null || file.frames == null || file.frames.Count == 0)
                 throw new Exception("Match file has no frames.");
@@ -441,6 +476,18 @@ namespace SoccerReplay
                     data.ball.heights.Add(f.ball.Length >= 3 ? Mathf.Max(0f, f.ball[2]) : 0f);
                     if (f.ball.Length >= 3) data.ballHasHeight = true;
                 }
+            }
+
+            if (file.ball_flights != null)
+            {
+                foreach (var fl in file.ball_flights)
+                {
+                    if (fl.start == null || fl.land == null || fl.start.Length < 2 || fl.land.Length < 2 || fl.Duration <= 0.01f) continue;
+                    var s = ToCentered(fl.start[0], fl.start[1]); fl.start = new[] { s.x, s.y };
+                    var l = ToCentered(fl.land[0], fl.land[1]); fl.land = new[] { l.x, l.y };
+                    data.flights.Add(fl);
+                }
+                data.flights.Sort((a, b) => a.t_takeoff.CompareTo(b.t_takeoff));
             }
 
             data.frameTimes = new float[file.frames.Count];
