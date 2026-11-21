@@ -54,6 +54,14 @@ namespace SoccerReplay
 
         [Header("Ad boards")]
         public string[] boardTexts = { "CODE JAM 2026", "SOCCER VISION AI", "TRACKED BY CV", "LIVE TACTICS", "3D MATCH REPLAY", "HOME  vs  AWAY" };
+        [Tooltip("Crest shown on the boards (leave empty for text-only boards)")]
+        public Texture2D boardLogo;
+        [Tooltip("Text written next to the crest")]
+        public string logoText = "SHEFFIELD THURSDAY";
+        [Tooltip("Show the crest on every Nth board (1 = every board)")]
+        [Min(1)] public int logoEvery = 1;
+        [Tooltip("Cut the crest out as a circle (for screenshots with a square background)")]
+        public bool circularLogo = true;
 
         // Half extents of the stand front edge
         float A, B;
@@ -325,7 +333,8 @@ namespace SoccerReplay
             var boards = new GameObject("Ad Boards").transform;
             boards.SetParent(root, false);
             var boardMat = PitchBuilder.MakeMaterial(boardColor);
-            int textIdx = 0;
+            var logoMat = boardLogo != null ? MakeLogoMaterial(boardLogo) : null;
+            int textIdx = 0, boardIdx = 0;
             const float panel = 8f, height = 0.95f;
 
             void Row(Vector2 from, Vector2 to, Vector2 faceDir)
@@ -342,20 +351,54 @@ namespace SoccerReplay
                     board.transform.localRotation = Quaternion.LookRotation(face);
                     board.transform.localScale = new Vector3(step.magnitude - 0.1f, height, 0.15f);
 
+                    var faceRot = Quaternion.LookRotation(-face);       // readable from the pitch side
+                    Vector3 readRight = faceRot * Vector3.right;          // the viewer's "right" along the board
+                    Vector3 center = new Vector3(c.x, height / 2f, c.y) + face * 0.09f;
+                    float boardLen = step.magnitude - 0.1f;
+                    bool withLogo = logoMat != null && boardIdx++ % logoEvery == 0;
+
                     var tgo = new GameObject("Text");
                     tgo.transform.SetParent(boards, false);
-                    tgo.transform.localPosition = new Vector3(c.x, height / 2f, c.y) + face * 0.09f;
-                    tgo.transform.localRotation = Quaternion.LookRotation(-face);
+                    tgo.transform.localRotation = faceRot;
                     var tmp = tgo.AddComponent<TextMeshPro>();
-                    tmp.text = boardTexts.Length > 0 ? boardTexts[textIdx++ % boardTexts.Length] : "";
-                    tmp.fontSize = 6f;
                     tmp.fontStyle = FontStyles.Bold;
-                    tmp.alignment = TextAlignmentOptions.Center;
-                    tmp.color = (textIdx % 2 == 0) ? new Color(1f, 0.85f, 0.2f) : Color.white;
-                    tmp.rectTransform.sizeDelta = new Vector2(step.magnitude - 0.4f, height);
                     tmp.enableAutoSizing = true;
                     tmp.fontSizeMin = 2f;
                     tmp.fontSizeMax = 6f;
+
+                    if (withLogo)
+                    {
+                        // Crest on the left, club name to its right, centered as a group
+                        float logoSize = height * 0.88f;
+                        float textWidth = Mathf.Min(boardLen - logoSize - 0.6f, 5.2f);
+                        float groupWidth = logoSize + 0.25f + textWidth;
+                        float left = -groupWidth / 2f;
+
+                        var logo = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                        logo.name = "Crest";
+                        Object.Destroy(logo.GetComponent<Collider>());
+                        logo.transform.SetParent(boards, false);
+                        logo.transform.localPosition = center + readRight * (left + logoSize / 2f) + face * 0.005f;
+                        logo.transform.localRotation = faceRot;
+                        logo.transform.localScale = new Vector3(logoSize, logoSize, 1f);
+                        var lr = logo.GetComponent<MeshRenderer>();
+                        lr.sharedMaterial = logoMat;
+                        lr.shadowCastingMode = ShadowCastingMode.Off;
+
+                        tgo.transform.localPosition = center + readRight * (left + logoSize + 0.25f + textWidth / 2f);
+                        tmp.text = logoText;
+                        tmp.alignment = TextAlignmentOptions.Left;
+                        tmp.color = Color.white;
+                        tmp.rectTransform.sizeDelta = new Vector2(textWidth, height * 0.8f);
+                    }
+                    else
+                    {
+                        tgo.transform.localPosition = center;
+                        tmp.text = boardTexts.Length > 0 ? boardTexts[textIdx++ % boardTexts.Length] : "";
+                        tmp.alignment = TextAlignmentOptions.Center;
+                        tmp.color = (textIdx % 2 == 0) ? new Color(1f, 0.85f, 0.2f) : Color.white;
+                        tmp.rectTransform.sizeDelta = new Vector2(step.magnitude - 0.4f, height);
+                    }
                 }
             }
 
@@ -365,6 +408,63 @@ namespace SoccerReplay
             Row(new Vector2(-hl - 2f, sideZ), new Vector2(hl + 2f, sideZ), Vector2.down);    // far touchline
             Row(new Vector2(-endX, -hw), new Vector2(-endX, hw), Vector2.right);             // west goal line
             Row(new Vector2(endX, -hw), new Vector2(endX, hw), Vector2.left);                // east goal line
+        }
+
+        /// <summary>Unlit, alpha-blended material for the crest so it shows its true colors on the board.</summary>
+        Material MakeLogoMaterial(Texture2D src)
+        {
+            Texture2D tex = circularLogo ? CutOutCircle(src) : src;
+            var shader = Shader.Find("Universal Render Pipeline/Unlit");
+            var m = new Material(shader);
+            m.SetTexture("_BaseMap", tex);
+            m.SetColor("_BaseColor", Color.white);
+            m.SetFloat("_Surface", 1f);
+            m.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+            m.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
+            m.SetFloat("_ZWrite", 0f);
+            m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            m.renderQueue = (int)RenderQueue.Transparent;
+            return m;
+        }
+
+        /// <summary>
+        /// Makes everything outside the crest's circular white rim transparent. The rim is found by scanning
+        /// from the image center outwards for the last bright pixel, so it adapts to how the screenshot was cropped.
+        /// </summary>
+        static Texture2D CutOutCircle(Texture2D src)
+        {
+            if (!src.isReadable) { Debug.LogWarning("[Stadium] Logo texture isn't readable; using it uncropped."); return src; }
+            int w = src.width, h = src.height;
+            var px = src.GetPixels32();
+            int cx = w / 2, cy = h / 2;
+            bool Bright(int x, int y) { var p = px[y * w + x]; return p.r > 200 && p.g > 200 && p.b > 200; }
+
+            int left = 0, right = w - 1, bottom = 0, top = h - 1;
+            for (int x = 0; x < cx; x++) if (Bright(x, cy)) { left = x; break; }
+            for (int x = w - 1; x > cx; x--) if (Bright(x, cy)) { right = x; break; }
+            for (int y = 0; y < cy; y++) if (Bright(cx, y)) { bottom = y; break; }
+            for (int y = h - 1; y > cy; y--) if (Bright(cx, y)) { top = y; break; }
+            float ccx = (left + right) / 2f, ccy = (bottom + top) / 2f;
+            float r = Mathf.Min(right - left, top - bottom) / 2f;
+
+            // Crop to the circle's bounding square and feather the edge slightly
+            int size = Mathf.Max(8, Mathf.CeilToInt(r * 2f) + 2);
+            var outTex = new Texture2D(size, size, TextureFormat.RGBA32, true);
+            var outPx = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                {
+                    float sx = ccx - size / 2f + x, sy = ccy - size / 2f + y;
+                    int ix = Mathf.Clamp(Mathf.RoundToInt(sx), 0, w - 1), iy = Mathf.Clamp(Mathf.RoundToInt(sy), 0, h - 1);
+                    var p = px[iy * w + ix];
+                    float d = Mathf.Sqrt((sx - ccx) * (sx - ccx) + (sy - ccy) * (sy - ccy));
+                    p.a = (byte)(255f * Mathf.Clamp01(r + 0.5f - d));
+                    outPx[y * size + x] = p;
+                }
+            outTex.SetPixels32(outPx);
+            outTex.wrapMode = TextureWrapMode.Clamp;
+            outTex.Apply(true);
+            return outTex;
         }
 
         void BuildCornerFlags(Transform root, float L, float W)
