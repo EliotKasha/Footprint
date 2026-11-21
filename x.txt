@@ -1,0 +1,3 @@
+python src/track_match.py test1.mp4 --players football-player-detection.pt --pitch football-pitch-detection.pt --ball football-ball-detection.pt --stride 2 --save-h
+python src/match_events.py match.json --out match_events.json
+python src/viz_match.py match_events.json --video test1.mp4 --out viz.mp4
