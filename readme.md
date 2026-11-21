@@ -22,11 +22,11 @@ app reads that JSON and replays the match in 3D.
 
 Results will go to `out/<video name>/` as follows:
 * `match.json` — Raw tracking: players, ball (2D), pitch calibration
-* `match_events.json` — Everything in `match.json` plus ball height (y), possession, events, and other stats
+* `match_events.json` — Everything in `match.json` plus ball height (z in json maps later to y in Unity), possession, events, and other stats
 * `viz.mp4` — Video of 2d minimap adjacent to original footage
 * `pipeline.log` — Console log of run w/ timestamps
 
-Models are chosen with environment variables. Defaults are the `.pt` files in the working directory:
+### Model download
 
 ```bash
 pip install gdown
@@ -42,10 +42,10 @@ yolo export model=football-player-detection.pt format=coreml "imgsz=[736,1280]"
 yolo export model=football-ball-detection.pt format=coreml "imgsz=[736,1280]"
 ```
 
-Then on run, specify:
+Optimal setting are encoded in bash script by default, simply run:
 
 ```bash
-PITCH_MODEL=football-pitch-detection.pt ./go.sh  #...
+./go.sh #...
 ```
 
 Which for me yielded best performance on MacOS (M4). This could very well differ by machine.
@@ -75,7 +75,7 @@ Most expensive step. It is broken into two parts:
 
 For each processed frame (every n-th frame for `--stride n`):
 
-1. **Detect players and ball:** The player model finds players, keepers and referees, while the ball model locates the ball (detections near head often discarded for high false positive rate).
+1. **Detect players and ball:** The player model finds players, keepers and referees, while the ball model locates the ball (detections in top 70% of a player's box discarded for high false positive rate).
 
 2. **Calibrate the camera: image → pitch homography `H`.** This is the core of everything. A homography is a 3×3 matrix mapping a pixel on the grass to (x, y) meters on the pitch.
    - **Base:** The pitch model finds key landmarks (corners, boxes, center circle, etc...). With enough of them (`--min-kp` = 6) we solve for `H`. It runs every `--kp-every` 3 frames to save time.
@@ -85,9 +85,9 @@ For each processed frame (every n-th frame for `--stride n`):
 
 3. **Track people (ByteTrack) with camera-motion compensation:** Boxes warped to undo pan before matching such that a fast pan doesn't make everyone "jump" and lose their IDs.
 
-4. **Project to pitch:** Each player's foot position (bottom-center of bounding-box) goes through `H` to give pitch meters. The ball's pixel goes through `H` in a similar way, though this is only correct when the ball is on the grass (detail in State 2).
+4. **Project to pitch:** Each player's foot position (bottom-center of bounding-box) goes through `H` to give pitch meters. The ball's pixel goes through `H` in a similar way, though this is only correct when the ball is on the grass (detail in Stage 2).
 
-5. **Sample jersey colors**: Needed for team identification. Torso crop w/ grass pixels --> median color. Brightness is down-weighted so sun/shadow doesn't split a team. Occluded players skipped.
+5. **Sample jersey colors**: Needed for team identification. Torso crop w/o grass pixels --> median color. Brightness is down-weighted so sun/shadow doesn't split a team. Occluded players skipped.
 
 6. **View polygon:** Which part of the pitch is currently in-view. Useful for Unity to fade out-of-frame players.
 
@@ -95,13 +95,13 @@ For each processed frame (every n-th frame for `--stride n`):
 
 1. **Drop unsettled start frames:** First frames before calibration locks in are junk.
 2. **`choose_ball_path`:** DP over ball candidates per frame. Pick the most consistent path.
-3. **`split_impossible_jumps`:** A track (player pos.) moving faster than a sprint (8 m/s) between frames is two people sharing an ID: split it (ignored when 40%+ of players jump together, which is a calibration glitch, not ID swaps).
+3. **`split_impossible_jumps`:** A track (one player's positions over time) moving faster than a sprint (8 m/s) between frames is two people sharing an ID: split it (ignored when 40%+ of players jump together, which is a calibration glitch, not ID swaps).
 4. **`split_team_switches`:** A track whose jersey color changes team partway through is split.
 5. **`stitch_tracks`:** Joins fragments of the same player across gaps (up to `--stitch-gap` 3 s), using Hungarian matching on where each fragment was heading, whether a person could physically cover that distance, same team, same role. Ambiguous matches are left alone.
 6. **`remove_duplicate_tracks`:** Two tracks on the same person, or short phantom fragments are removed.
 7. **`fill_player_gaps`:** Short gaps (<= `--fill-gap` 1 s) filled by interpolation if plausible.
 8. **`smooth_tracks`:** Removes jitter by applying Gaussian smoothing over `--smooth-seconds` 0.35 s.
-9. **`cap_speed`:** Players faster than 11 m/s omitted.
+9. **`cap_speed`:** Players cannot move faster than 11 m/s.
 10. **`interpolate_ball`:** Short ball gaps filled (on ground only).
 11. **Teams / roles:** KMeans (k=2) on each track's jersey color. Outliers are goalies if near goal, refs otherwise. 
 12. **Team order:** Team 0 = lighter kit (or warmer color if equally light) so labels don't swap between runs.
@@ -113,12 +113,12 @@ For each processed frame (every n-th frame for `--stride n`):
 
 Works purely on JSON (quick to iterate via `--skip-track`). Mostly 3D fitting.
 
-1. **Possession (`find_possession`):** Ball belongs to nearest player within 2m (keeps it up to 3 m) if ball is roughly moving with him (relative speed ≤ 7 m/s) for at least 0.15 s. Also means this handles a ball being hidden behind the player in possession.
+1. **Possession (`find_possession`):** Ball belongs to nearest player within 2m (keeps it up to 3 m) if ball is roughly moving with him (relative speed ≤ 7 m/s) for at least 0.15 s. Also means this handles a ball being hidden behind the player in possession (he just keeps it).
 
 2. **Recover 3D camera per frame (`frame_cameras`):** From `H` alone we can recover focal length, rotation, and camera position: Homography of a plane is `K·[r1 r2 t]` with r1/r2 orthonormal. This gives each frame's camera in 3D s.t. a pixel may become a *line of sight*.
 
 3. **Ball flights:** Fitted as gravity arcs through the lines of sight. *An arc is only accepted if it explains the pixels notably better than a rolling ball*:
-   - `find_flights_3d`: Passes and kicks right after possession split ends.
+   - `find_flights_3d`: Passes and kicks right after possession spell ends.
    - `find_bridges`: High balls which leave detector's sight (namely going into/over the crowd). The rise off the kicker is joined to the first later run of sightings on the same arc. False detections within this gap are ignored. Also searches exact kick moment and a per-flight zoom correction (the zoom estimate drifts while panning, which mostly shows up as incorrect heights).
    - `find_hops_3d`: Janky movements, namely headers, bounces, and scrambles. Free-ball stretches are split into the longest possible pieces which fit an arc, with each starting where the previous one landed.
    - `clean_ball` (fallback): When the projected ball moves faster than any ground ball can (30 m/s) but no 3D fit worked, an arc is instead estimated from flight time (`ball_est: true`).

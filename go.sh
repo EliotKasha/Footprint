@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Run the whole pipeline on one video: tracking -> events/ball height -> visual check.
 #
-#   ./run_pipeline.sh test1.mp4
-#   ./run_pipeline.sh test1.mp4 --stride 4 --no-viz
-#   ./run_pipeline.sh test1.mp4 --out results/game1 -- --ball-tiles 2 --player-tiles 2
+#   ./go.sh test1.mp4
+#   ./go.sh test1.mp4 --stride 4 --no-viz
+#   ./go.sh test1.mp4 --out results/game1 -- --ball-tiles 2 --player-tiles 2
 #
 # Results go to out/<video name>/ (or --out DIR):
 #   match.json         raw tracking (players, ball, calibration)
@@ -19,23 +19,23 @@
 #   --skip-track    reuse an existing match.json in the output folder (re-run events + viz only)
 #   --              everything after this is passed straight to track_match.py
 #
-# Model files (override with environment variables):
-#   PLAYERS_MODEL=football-player-detection.pt
-#   PITCH_MODEL=football-pitch-detection.pt
-#   BALL_MODEL=football-ball-detection.pt      (set BALL_MODEL= to run without a ball model)
-# Core ML exports (much faster on a Mac) work too, e.g.
-#   PLAYERS_MODEL=football-player-detection.mlpackage ./run_pipeline.sh test1.mp4
+# Model files (defaults = fastest on a Mac; override with environment variables):
+#   PLAYERS_MODEL=football-player-detection.mlpackage   (Core ML export of the .pt)
+#   BALL_MODEL=football-ball-detection.mlpackage        (set BALL_MODEL= to run without one)
+#   PITCH_MODEL=football-pitch-detection.pt             (the .pt is faster than Core ML here)
+# No Core ML (Linux/Windows/CUDA): use the .pt files, e.g.
+#   PLAYERS_MODEL=football-player-detection.pt BALL_MODEL=football-ball-detection.pt ./go.sh test1.mp4
 
 set -euo pipefail
 
 # ---------- settings ----------
 PLAYERS_MODEL="${PLAYERS_MODEL-football-player-detection.mlpackage}"
 BALL_MODEL="${BALL_MODEL-football-ball-detection.mlpackage}"
-PITCH_MODEL="${PITCH_MODEL-football-pitch-detection.mlpackage}"
+PITCH_MODEL="${PITCH_MODEL-football-pitch-detection.pt}"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/src"
 [ -d "$SRC_DIR" ] || SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # script placed inside src/
 
-usage() { sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 # ---------- arguments ----------
 [ $# -ge 1 ] || usage 1
