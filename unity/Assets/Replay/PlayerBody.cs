@@ -52,6 +52,22 @@ namespace SoccerReplay
         static readonly int MoveXId = Animator.StringToHash("MoveX");
         static readonly int MoveYId = Animator.StringToHash("MoveY");
         static readonly int SpeedId = Animator.StringToHash("Speed");
+        const int ActionLayer = 1;
+
+        /// <summary>
+        /// Plays an action (kick, receive, header...) on the Actions layer at an exact point in the clip,
+        /// blended over the locomotion by weight. Driven every frame from replay time, so it stays correct
+        /// when pausing, scrubbing or changing speed. Pass weight 0 to turn the layer off.
+        /// </summary>
+        public void SetAction(int stateHash, float normalizedTime, float weight, bool mirror = false)
+        {
+            if (animator == null || animator.layerCount <= ActionLayer) return;
+            animator.SetLayerWeight(ActionLayer, weight);
+            if (weight <= 0f) return;
+            animator.SetBool(MirrorId, mirror);   // left-foot version of the clip when the ball is on that side
+            animator.Play(stateHash, ActionLayer, normalizedTime);
+        }
+        static readonly int MirrorId = Animator.StringToHash("Mirror");
 
         /// <summary>Swap materials (e.g. solid when tracked, see-through when estimated). Null shorts keeps the shared solid one.</summary>
         public void SetLook(Material body, Material trim, Material shorts = null)
@@ -153,7 +169,8 @@ namespace SoccerReplay
         /// Moves and animates the body. dt is replay time elapsed (0 while paused); snap jumps straight
         /// to the target state (after a seek or when the player first appears).
         /// </summary>
-        public void UpdateMotion(Vector2 pos, Vector2 vel, Vector2 lookAt, float fade, float dt, bool snap, BodyMotionSettings s)
+        public void UpdateMotion(Vector2 pos, Vector2 vel, Vector2 lookAt, float fade, float dt, bool snap, BodyMotionSettings s,
+                                 Vector2? forceFace = null)
         {
             root.localPosition = new Vector3(pos.x, 0f, pos.y);
             root.localScale = Vector3.one * Mathf.Max(0.001f, fade);
@@ -163,8 +180,9 @@ namespace SoccerReplay
             if (snap) { speed = raw; speedVel = 0f; }
             else if (dt > 0f) speed = Mathf.SmoothDamp(speed, raw, ref speedVel, s.speedSmooth, Mathf.Infinity, dt);
 
-            // Facing: direction of travel when moving, the ball when nearly still
-            Vector2 faceDir = speed > s.faceMoveAbove ? vel : lookAt - pos;
+            // Facing: forced target during actions (pass target / incoming ball); otherwise direction of
+            // travel when moving, the ball when nearly still
+            Vector2 faceDir = forceFace.HasValue ? forceFace.Value - pos : speed > s.faceMoveAbove ? vel : lookAt - pos;
             if (faceDir.sqrMagnitude > 0.01f)
             {
                 float target = Mathf.Atan2(faceDir.x, faceDir.y) * Mathf.Rad2Deg;

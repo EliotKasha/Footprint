@@ -11,7 +11,13 @@ The CV pipeline outputs `match_events.json` (players, ball, possession, passes a
 **Controls:** Space play/pause · ←/→ skip 1 s · `[` `]` speed (0.25×–4×) · `1` `2` `3` broadcast / top-down / follow-ball camera · `R` restart.
 The bar at the bottom has the same controls plus a timeline slider. The top-left panel is a live event feed.
 
-**Loading a new CV output:** copy the JSON into `Assets/StreamingAssets/matches/`, select the `Replay` object and set **Match File**. The current one is `matches/match_events_v5.json`.
+**Loading a new CV output:** copy the JSON into `Assets/StreamingAssets/matches/`, select the `Replay` object and set **Match File**.
+
+**Scenes** (same scripts, different clips; settings like Flip Y and the sponsor boards are saved per scene):
+| Scene | Data | Clip |
+|---|---|---|
+| `Assets/Scenes/Replay.unity` | `matches/match_events_v5.json` | 60 s, play in the west half |
+| `Assets/Scenes/Replay_Match2.unity` | `matches/match_events_v6.json` | 30 s, play around the east penalty area |
 
 ## What's been built
 
@@ -36,6 +42,14 @@ Broadcast footage only shows part of the pitch, so players drop in and out of th
 - **Soccer Replay → Setup Animated Players** rebuilds everything (clip import settings, blend tree, keeper variant, wiring). Drop `Running` / `Fast Run` / `Sprint` clips into the pack folder and re-run it to add faster gaits.
 - Untick **Use Animated Players** to go back to capsules.
 
+### Actions from match events (kicks, receives, keeper)
+- An **action schedule** is built from the events. A `pass` plays a kick (standing kick, running strike, or long kick for aerial or 30 m+ passes; keepers use pass or drop kick). A `touch` plays a receive (keepers catch). A ball arriving at 1.2 m or higher plays a header.
+- Actions run on an **Actions** animator layer, **driven by replay time** (they stay correct when pausing, scrubbing or changing speed), and blend in and out over the locomotion.
+- **Contact timing:** each clip's contact moment (when the foot, head or hands move fastest) and limb position are measured when the replay starts, on a hidden copy of the player. The action starts early enough to connect at the event time.
+- **Contact alignment:** around contact the player is shifted slightly (capped at 1.5 m) so the striking foot lands on the ball, using the **mirrored clip** when the ball is on the other foot's side. On the 60 s clip, foot-to-ball distance at contact went from 0.71 m on average to 0.12 m (median 0.03 m).
+- Players turn toward the pass target when kicking and toward the incoming ball when receiving.
+- Tunable under **Actions** on the `Replay` object (blend times, running-kick speed, long-pass length, header height, contact alignment, mirroring).
+
 ### Players' body motion
 - Velocity is measured over a window centered on the current moment, then smoothed. Players face their direction of travel when moving and turn to the ball when standing.
 - Capsule bodies (fallback) have a chest stripe and shorts band, and lean and bob with speed. Animated players get a lighter lean on top of their clips. All of this follows pause, scrubbing and playback speed.
@@ -56,7 +70,7 @@ The CV output still has errors, so the loader fixes them before playback:
 ### Stadium
 - A two-tier bowl with closed corners, concourse, aisles and roof, built in code to fit the 105 × 68 m pitch.
 - About 13k instanced crowd figures in team colors with an away section, and a gentle bob.
-- **Ad boards** with the **Sheffield Thursday** crest and name. The crest is cut out of `Assets/Replay/Textures/SheffieldThursdayLogo.png`.
+- **Rotating sponsor boards** (LED style): every 6 s each board flips to the next sponsor (**CodeJam 16**, **IBM**, **Sheffield Thursday**), with neighboring boards showing different sponsors, all on a uniform white background. Sponsors are a list under **Stadium Builder → Board Ads** (logo, text, size, optional circle crop). Logos are in `Assets/Replay/Textures/`; the CodeJam logo was rendered from its SVG.
 - Sunny-afternoon lighting with the stand shadow across the pitch, procedural sky, haze, post-processing (ACES, bloom, vignette) and MSAA.
 - The broadcast camera sits on a gantry at the front of the main stand.
 
@@ -67,7 +81,8 @@ Almost everything is tunable on the `Replay` object's Inspector: Data cleanup, B
 |---|---|
 | `Assets/Replay/MatchData.cs` | JSON format classes, loading, coordinate handling, tracking cleanup, tracks, ball flights |
 | `Assets/Replay/ReplayController.cs` | Playback, cameras, players, keepers, ball, possession, pass arcs, UI |
-| `Assets/Replay/PlayerBody.cs` | Player body: animated Y Bot or capsule, facing, lean, blend-tree driving |
+| `Assets/Replay/PlayerBody.cs` | Player body: animated Y Bot or capsule, facing, lean, blend-tree driving, action playback |
+| `Assets/Replay/MatchActions.cs` | Action clips, the event → action scheduler, contact alignment and mirroring |
 | `Assets/Replay/Editor/AnimatedPlayersSetup.cs` | **Soccer Replay → Setup Animated Players**: clip import, blend tree, keeper override |
 | `Assets/Characters/` | Soccer Game Pack (Y Bot, X Bot, Mixamo clips) and the locomotion controllers |
 | `Assets/Replay/PitchBuilder.cs` | Pitch, markings and goals |
@@ -110,8 +125,17 @@ Almost everything is tunable on the `Replay` object's Inspector: Data cleanup, B
 - **`ball_flights`:** a few fits are too short for their height (e.g. 2.95 m in 0.67 s implies about 5× gravity). Adding takeoff and landing heights (`start_z`, `land_z`) or a launch velocity would let headers and volleys be drawn exactly instead of snapping to the ground.
 - ID stability and camera calibration (still "coasting" most frames) are the biggest remaining accuracy factors.
 
+## Known issues / still to tweak
+These are minor polish items. Everything works, but they're worth tuning:
+- **Standing-kick timing:** for the short `kick soccerball` clip, "fastest foot" lands in the follow-through (0.52 s of 0.57 s), so standing kicks connect slightly late in the motion. Fix: limit that clip's contact search to its first part.
+- **Contact alignment** is good on average (median 0.03 m) but a few kicks are still about 0.6 m off, and actions by estimated (off-camera) players can't be aligned as precisely.
+- **Off-camera player estimates** (first version) need tuning: hold time, team-follow amount, how readily tracks are joined (a wrong join can make an estimate glide somewhere odd), and how see-through estimates are.
+- **Faster gaits:** there are no running or sprint clips yet, so the jog plays up to 1.6× faster above about 2.4 m/s. Add `Running` / `Fast Run` and re-run **Setup Animated Players**.
+- **Backpedaling and sidestepping** rarely show, because players face their direction of travel above 1.2 m/s.
+- **Headers** are wired up but haven't been seen yet, since no clip so far has a flight ending above 1.2 m.
+- **Data side:** keepers sometimes switch IDs (#22/#23 in match 2), camera calibration coasts most frames, and Flip Y is still needed. These are noted in "Notes for the CV side".
+
 ## Next up
-- Running and sprint clips for faster gaits, and more backpedaling and sidestepping (facing the ball while jogging slowly).
-- **Tier 2:** pass, kick, receive, header and keeper animations triggered from events (clips are already in the pack).
-- Tuning the off-camera player estimates.
+- The tweaks above, then a side panel for formations and player ratings from the analysis model.
+- A standalone build and a backup demo video.
 - Side panel for formations and player ratings from the analysis model, a standalone build, and a backup demo video.
