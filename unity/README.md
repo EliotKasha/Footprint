@@ -29,10 +29,16 @@ Broadcast footage only shows part of the pitch, so players drop in and out of th
 - At most **10 outfield players per team** are shown. When there are more estimates, the ones closest in time to a real sighting win, and changes fade instead of popping.
 - Tunable under **Off-camera players** on the `Replay` object (see-through amount, hold time, team follow, join gap and speed). This is a first version and still needs tuning.
 
+### Animated players
+- Players are **animated Mixamo Y Bots** (from the Soccer Game Pack in `Assets/Characters/SoccerGamePack/`), tinted with the team kit (body in the kit color, joints in a contrasting color). Keepers and the referee get their own colors, and estimated off-camera players use the see-through look.
+- **Locomotion blend tree** (`Assets/Characters/PlayerLocomotion.controller`): a 2D freeform-directional tree on body-relative velocity. `offensive idle` is in the center, **Walking** at 1.68 m/s, and the **8-direction jog set** at about 2.4 m/s, each placed at its measured speed and direction. Goalkeepers use the same tree with `goalkeeper idle` (`KeeperLocomotion.overrideController`).
+- Animation speed follows ground speed (above jog speed the jog plays up to 1.6× faster) and replay time (it freezes on pause and scales with playback speed). Players' steps are offset so they don't move in sync. Root motion is off, so players stay exactly on their tracked positions.
+- **Soccer Replay → Setup Animated Players** rebuilds everything (clip import settings, blend tree, keeper variant, wiring). Drop `Running` / `Fast Run` / `Sprint` clips into the pack folder and re-run it to add faster gaits.
+- Untick **Use Animated Players** to go back to capsules.
+
 ### Players' body motion
-- Each player has a chest stripe (shows facing) and a shorts band.
 - Velocity is measured over a window centered on the current moment, then smoothed. Players face their direction of travel when moving and turn to the ball when standing.
-- They lean into runs and bob with a speed-scaled running rhythm. All of this follows pause, scrubbing and playback speed.
+- Capsule bodies (fallback) have a chest stripe and shorts band, and lean and bob with speed. Animated players get a lighter lean on top of their clips. All of this follows pause, scrubbing and playback speed.
 
 ### Ball and events
 - Ball with height and a ground shadow, and a **possession ring** under the player on the ball (`owner`).
@@ -61,7 +67,9 @@ Almost everything is tunable on the `Replay` object's Inspector: Data cleanup, B
 |---|---|
 | `Assets/Replay/MatchData.cs` | JSON format classes, loading, coordinate handling, tracking cleanup, tracks, ball flights |
 | `Assets/Replay/ReplayController.cs` | Playback, cameras, players, keepers, ball, possession, pass arcs, UI |
-| `Assets/Replay/PlayerBody.cs` | Player body visuals and motion (facing, lean, bob) |
+| `Assets/Replay/PlayerBody.cs` | Player body: animated Y Bot or capsule, facing, lean, blend-tree driving |
+| `Assets/Replay/Editor/AnimatedPlayersSetup.cs` | **Soccer Replay → Setup Animated Players**: clip import, blend tree, keeper override |
+| `Assets/Characters/` | Soccer Game Pack (Y Bot, X Bot, Mixamo clips) and the locomotion controllers |
 | `Assets/Replay/PitchBuilder.cs` | Pitch, markings and goals |
 | `Assets/Replay/StadiumBuilder.cs` | Stands, roof, crowd, ad boards, lighting and post-processing |
 | `Assets/Replay/Editor/ReplaySceneSetup.cs` | **Soccer Replay** menu that builds the scene |
@@ -103,6 +111,7 @@ Almost everything is tunable on the `Replay` object's Inspector: Data cleanup, B
 - ID stability and camera calibration (still "coasting" most frames) are the biggest remaining accuracy factors.
 
 ## Next up
-- **Tier 1:** animated humanoid players (Mixamo character and locomotion blend tree) driven by the same motion data.
-- **Tier 2:** pass, kick and receive animations triggered from events.
+- Running and sprint clips for faster gaits, and more backpedaling and sidestepping (facing the ball while jogging slowly).
+- **Tier 2:** pass, kick, receive, header and keeper animations triggered from events (clips are already in the pack).
+- Tuning the off-camera player estimates.
 - Side panel for formations and player ratings from the analysis model, a standalone build, and a backup demo video.

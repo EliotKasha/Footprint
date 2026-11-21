@@ -1,0 +1,13 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!221 &22100000
+AnimatorOverrideController:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: KeeperLocomotion
+  m_Controller: {fileID: 9100000, guid: 91e323bbac3826b4bbb470b0442d87fc, type: 2}
+  m_Clips:
+  - m_OriginalClip: {fileID: -203655887218126122, guid: a23e7dc2a26ec134fba5c37cf7f36c5c, type: 3}
+    m_OverrideClip: {fileID: -203655887218126122, guid: 63f2b14f65fb4c448bda4f817210674e, type: 3}

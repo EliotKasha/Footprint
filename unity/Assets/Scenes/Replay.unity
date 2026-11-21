@@ -437,6 +437,20 @@ MonoBehaviour:
   homeKeeperColor: {r: 1, g: 0.85, b: 0.1, a: 1}
   awayKeeperColor: {r: 0.95, g: 0.3, b: 0.85, a: 1}
   useKitColors: 1
+  estimateOffscreenPlayers: 1
+  stitchMaxGap: 8
+  stitchRunSpeed: 7
+  ghostHoldTime: 8
+  ghostTeamFollow: 0.6
+  ghostMaxDrift: 10
+  maxOutfieldPerTeam: 10
+  ghostMaxSpeed: 8
+  ghostBlendTime: 1
+  ghostAlpha: 0.4
+  useAnimatedPlayers: 1
+  playerModel: {fileID: 919132149155446097, guid: a1b82db4e8f988d40a244aaf4c1a98ce, type: 3}
+  playerAnimator: {fileID: 9100000, guid: 91e323bbac3826b4bbb470b0442d87fc, type: 2}
+  keeperAnimator: {fileID: 22100000, guid: 185cf762eb8c639448a04b50228f72be, type: 2}
   bodyMotion:
     velocityWindow: 0.3
     speedSmooth: 0.15
@@ -446,6 +460,10 @@ MonoBehaviour:
     leanPerMs: 1.6
     maxLean: 13
     bobHeight: 0.06
+    jogClipSpeed: 2.3789022
+    maxAnimSpeedup: 1.6
+    animatedLeanScale: 0.35
+    blendDamping: 0.12
   estimateKeepers: 1
   autoDetectSides: 1
   homeDefendsWest: 1
