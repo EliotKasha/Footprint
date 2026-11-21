@@ -14,10 +14,10 @@ app reads that JSON and replays the match in 3D.
 ## Quick start
 
 ```bash
-./go.sh test2.mp4 --stride [n] --show  # Stride of n frames, default 2. Show output
-./go.sh test2.mp4 --skip-track         # Reuse match.json, re-run events + viz only (faster)
-./go.sh test2.mp4 --no-viz             # Skip check video
-./go.sh test2.mp4 -- --debug-teams     # Debug mode (everything after -- passed directly to track_match.py)
+./go.sh test1.mp4 --stride [n] --show  # Stride of n frames, default 2. Show output
+./go.sh test1.mp4 --skip-track         # Reuse match.json, re-run events + viz only (faster)
+./go.sh test1.mp4 --no-viz             # Skip check video
+./go.sh test1.mp4 -- --debug-teams     # Debug mode (everything after -- passed directly to track_match.py)
 ```
 
 Results will go to `out/<video name>/` as follows:
