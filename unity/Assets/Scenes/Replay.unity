@@ -408,6 +408,33 @@ MonoBehaviour:
   logoText: SHEFFIELD THURSDAY
   logoEvery: 1
   circularLogo: 1
+  boardAds:
+  - name: Sheffield Thursday
+    logo: {fileID: 2800000, guid: 8973dd846f0d34847a2e852099e9c2e6, type: 3}
+    text: SHEFFIELD THURSDAY
+    background: {r: 0.06, g: 0.09, b: 0.2, a: 1}
+    textColor: {r: 1, g: 1, b: 1, a: 1}
+    circularCrop: 1
+    logoHeight: 0.88
+  - name: CodeJam
+    logo: {fileID: 2800000, guid: 9b4a5873f28ffd24a871a21d85e890a5, type: 3}
+    text: CodeJam 16
+    background: {r: 0.04, g: 0.07, b: 0.08, a: 1}
+    textColor: {r: 1, g: 1, b: 1, a: 1}
+    circularCrop: 0
+    logoHeight: 0.85
+  - name: IBM
+    logo: {fileID: 2800000, guid: 1a6c4aea32303d049842d6049b36867f, type: 3}
+    text: 
+    background: {r: 1, g: 1, b: 1, a: 1}
+    textColor: {r: 0.12, g: 0.44, b: 0.76, a: 1}
+    circularCrop: 0
+    logoHeight: 0.85
+  uniformAdBackground: 1
+  adBoardColor: {r: 1, g: 1, b: 1, a: 1}
+  rotateAds: 1
+  adRotateSeconds: 6
+  adFlipSeconds: 0.4
 --- !u!114 &1939742396
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -451,6 +478,114 @@ MonoBehaviour:
   playerModel: {fileID: 919132149155446097, guid: a1b82db4e8f988d40a244aaf4c1a98ce, type: 3}
   playerAnimator: {fileID: 9100000, guid: 91e323bbac3826b4bbb470b0442d87fc, type: 2}
   keeperAnimator: {fileID: 22100000, guid: 185cf762eb8c639448a04b50228f72be, type: 2}
+  playActions: 1
+  actionClips:
+  - name: Kick
+    clip: {fileID: -203655887218126122, guid: deb77b94eb8e7e441a7da037adae41b6, type: 3}
+    state: Kick
+    contact: 0.25500003
+    clipStart: 0
+    clipEnd: 0.5666667
+    contactOffset: {x: 0.2, y: 0.1, z: 0.4}
+    contactRightSide: 1
+    contactPart: 0
+    maxLead: 0.6
+    maxFollow: 0.5
+    searchEnd: 99
+  - name: KickRun
+    clip: {fileID: -203655887218126122, guid: 9b386a2da09295642aeb0997d1657c1b, type: 3}
+    state: KickRun
+    contact: 0.58500004
+    clipStart: 0
+    clipEnd: 1.1850001
+    contactOffset: {x: 0.2, y: 0.1, z: 0.4}
+    contactRightSide: 1
+    contactPart: 0
+    maxLead: 0.8
+    maxFollow: 0.6
+    searchEnd: 99
+  - name: LongKick
+    clip: {fileID: -203655887218126122, guid: 00e139fbf1c7b514f8821e3f83cc9fe3, type: 3}
+    state: LongKick
+    contact: 0.675
+    clipStart: 0
+    clipEnd: 1.2750001
+    contactOffset: {x: 0.2, y: 0.1, z: 0.4}
+    contactRightSide: 1
+    contactPart: 0
+    maxLead: 0.9
+    maxFollow: 0.6
+    searchEnd: 99
+  - name: Receive
+    clip: {fileID: -203655887218126122, guid: 52ef3dc043eda524aad1b164ce6e5eb7, type: 3}
+    state: Receive
+    contact: 2.3100002
+    clipStart: 1.7100002
+    clipEnd: 3.0100002
+    contactOffset: {x: 0.2, y: 0.1, z: 0.4}
+    contactRightSide: 1
+    contactPart: 0
+    maxLead: 0.6
+    maxFollow: 0.7
+    searchEnd: 2
+  - name: Header
+    clip: {fileID: -203655887218126122, guid: d60457fe95adf0a4ca1a4358cbef4166, type: 3}
+    state: Header
+    contact: 0.855
+    clipStart: 0.055000007
+    clipEnd: 1.455
+    contactOffset: {x: 0.2, y: 0.1, z: 0.4}
+    contactRightSide: 1
+    contactPart: 1
+    maxLead: 0.8
+    maxFollow: 0.6
+    searchEnd: 99
+  - name: KeeperCatch
+    clip: {fileID: -203655887218126122, guid: 632b53cb5a1e89f47816d607eecc7ad3, type: 3}
+    state: KeeperCatch
+    contact: 0.94500005
+    clipStart: 0.24500006
+    clipEnd: 1.7450001
+    contactOffset: {x: 0.2, y: 0.1, z: 0.4}
+    contactRightSide: 1
+    contactPart: 2
+    maxLead: 0.7
+    maxFollow: 0.8
+    searchEnd: 99
+  - name: KeeperDropKick
+    clip: {fileID: -203655887218126122, guid: 23a2baa05fa6c45448c9fb06952d9244, type: 3}
+    state: KeeperDropKick
+    contact: 1.755
+    clipStart: 0.55499995
+    clipEnd: 2.555
+    contactOffset: {x: 0.2, y: 0.1, z: 0.4}
+    contactRightSide: 1
+    contactPart: 0
+    maxLead: 1.2
+    maxFollow: 0.8
+    searchEnd: 99
+  - name: KeeperPass
+    clip: {fileID: -203655887218126122, guid: 9044f45baa5da0b4aa67b1e9bcbf8c48, type: 3}
+    state: KeeperPass
+    contact: 1.41
+    clipStart: 0.40999997
+    clipEnd: 2.11
+    contactOffset: {x: 0.2, y: 0.1, z: 0.4}
+    contactRightSide: 1
+    contactPart: 0
+    maxLead: 1
+    maxFollow: 0.7
+    searchEnd: 99
+  actionBlendIn: 0.15
+  actionBlendOut: 0.25
+  runningKickSpeed: 2
+  longPassLength: 30
+  headerMinHeight: 1.2
+  chestMinHeight: 0.5
+  alignContact: 1
+  maxContactNudge: 1.5
+  contactNudgeWindow: 0.45
+  mirrorForBallSide: 1
   bodyMotion:
     velocityWindow: 0.3
     speedSmooth: 0.15

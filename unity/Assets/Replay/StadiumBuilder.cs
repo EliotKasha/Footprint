@@ -62,6 +62,34 @@ namespace SoccerReplay
         [Min(1)] public int logoEvery = 1;
         [Tooltip("Cut the crest out as a circle (for screenshots with a square background)")]
         public bool circularLogo = true;
+        [Tooltip("Sponsor ads; when set, the boards rotate through these instead of the single logo/texts above")]
+        public List<BoardAd> boardAds = new List<BoardAd>();
+        [Tooltip("Give every ad the same board color (below) instead of each ad's own background")]
+        public bool uniformAdBackground = true;
+        public Color adBoardColor = Color.white;
+        [Tooltip("Like LED boards: each board flips to the next sponsor every few seconds")]
+        public bool rotateAds = true;
+        [Min(1f)] public float adRotateSeconds = 6f;
+        [Min(0.05f)] public float adFlipSeconds = 0.4f;
+
+        // Rotating boards: one content group per ad on each board
+        readonly List<(GameObject[] groups, int offset)> rotatingBoards = new List<(GameObject[], int)>();
+        int lastShownCycle = int.MinValue;
+
+        [System.Serializable]
+        public class BoardAd
+        {
+            public string name = "Sponsor";
+            public Texture2D logo;
+            [Tooltip("Text next to the logo (leave empty for a logo-only board)")]
+            public string text;
+            public Color background = new Color(0.06f, 0.09f, 0.20f);
+            public Color textColor = Color.white;
+            [Tooltip("Cut the logo out as a circle (for round crests on a square background)")]
+            public bool circularCrop;
+            [Tooltip("Logo height as a fraction of the board height")]
+            [Range(0.2f, 1f)] public float logoHeight = 0.8f;
+        }
 
         // Half extents of the stand front edge
         float A, B;
@@ -333,9 +361,26 @@ namespace SoccerReplay
             var boards = new GameObject("Ad Boards").transform;
             boards.SetParent(root, false);
             var boardMat = PitchBuilder.MakeMaterial(boardColor);
-            var logoMat = boardLogo != null ? MakeLogoMaterial(boardLogo) : null;
+            var logoMat = boardLogo != null ? MakeLogoMaterial(boardLogo, circularLogo) : null;
             int textIdx = 0, boardIdx = 0;
             const float panel = 8f, height = 0.95f;
+
+            // Sponsor ads: boards rotate through the list (each with its own logo, text and board color)
+            var ads = new List<(BoardAd ad, Material board, Material logo, float aspect)>();
+            if (boardAds != null)
+                foreach (var ad in boardAds)
+                {
+                    if (ad == null || (ad.logo == null && string.IsNullOrEmpty(ad.text))) continue;
+                    Material lm = null; float aspect = 1f;
+                    if (ad.logo != null)
+                    {
+                        lm = MakeLogoMaterial(ad.logo, ad.circularCrop);
+                        var t = lm.GetTexture("_BaseMap");
+                        aspect = t != null && t.height > 0 ? (float)t.width / t.height : 1f;
+                    }
+                    ads.Add((ad, PitchBuilder.MakeMaterial(uniformAdBackground ? adBoardColor : ad.background), lm, aspect));
+                }
+            rotatingBoards.Clear();
 
             void Row(Vector2 from, Vector2 to, Vector2 faceDir)
             {
@@ -346,6 +391,28 @@ namespace SoccerReplay
                 for (int i = 0; i < count; i++)
                 {
                     Vector2 c = from + step * (i + 0.5f);
+                    if (ads.Count > 0)
+                    {
+                        int idx = boardIdx++;
+                        if (rotateAds && ads.Count > 1)
+                        {
+                            // One panel, with every sponsor's content stacked on it; Update() shows one at a time
+                            var groups = new GameObject[ads.Count];
+                            for (int k = 0; k < ads.Count; k++)
+                            {
+                                var a = ads[k];
+                                groups[k] = BuildAdBoard(boards, c, step.magnitude - 0.1f, height, face, a.ad, a.board, a.logo, a.aspect, panel: k == 0);
+                                groups[k].SetActive(false);
+                            }
+                            rotatingBoards.Add((groups, idx));
+                        }
+                        else
+                        {
+                            var a = ads[idx % ads.Count];
+                            BuildAdBoard(boards, c, step.magnitude - 0.1f, height, face, a.ad, a.board, a.logo, a.aspect, panel: true);
+                        }
+                        continue;
+                    }
                     var board = PitchBuilder.Primitive(PrimitiveType.Cube, "Board", boards, boardMat);
                     board.transform.localPosition = new Vector3(c.x, height / 2f, c.y);
                     board.transform.localRotation = Quaternion.LookRotation(face);
@@ -410,10 +477,112 @@ namespace SoccerReplay
             Row(new Vector2(endX, -hw), new Vector2(endX, hw), Vector2.left);                // east goal line
         }
 
-        /// <summary>Unlit, alpha-blended material for the crest so it shows its true colors on the board.</summary>
-        Material MakeLogoMaterial(Texture2D src)
+        /// <summary>
+        /// One sponsor's content on a board: the logo and (optionally) text, centered as a group. Returns the
+        /// group so rotating boards can flip between sponsors. With panel=true it also builds the board itself.
+        /// </summary>
+        GameObject BuildAdBoard(Transform parent, Vector2 c, float boardLen, float height, Vector3 face,
+                                BoardAd ad, Material boardMat, Material logoMat, float aspect, bool panel)
         {
-            Texture2D tex = circularLogo ? CutOutCircle(src) : src;
+            if (panel)
+            {
+                var board = PitchBuilder.Primitive(PrimitiveType.Cube, $"Board ({ad.name})", parent, boardMat);
+                board.transform.localPosition = new Vector3(c.x, height / 2f, c.y);
+                board.transform.localRotation = Quaternion.LookRotation(face);
+                board.transform.localScale = new Vector3(boardLen, height, 0.15f);
+            }
+
+            var faceRot = Quaternion.LookRotation(-face);   // readable from the pitch side
+            // Content group sits on the board face; its local x runs along the board as the viewer reads it
+            var groupGo = new GameObject($"Ad ({ad.name})");
+            groupGo.transform.SetParent(parent, false);
+            groupGo.transform.localPosition = new Vector3(c.x, height / 2f, c.y) + face * 0.09f;
+            groupGo.transform.localRotation = faceRot;
+            var groupT = groupGo.transform;
+            Vector3 readRight = Vector3.right;
+            Vector3 center = Vector3.zero;
+            face = Vector3.back;                              // "toward the pitch" in the group's local space
+            parent = groupT;
+            faceRot = Quaternion.identity;
+            Color textColor = uniformAdBackground ? (adBoardColor.grayscale > 0.5f ? new Color(0.08f, 0.12f, 0.24f) : Color.white) : ad.textColor;
+
+            bool hasText = !string.IsNullOrEmpty(ad.text);
+            float logoH = height * Mathf.Clamp(ad.logoHeight, 0.2f, 1f);
+            float logoW = logoMat != null ? Mathf.Min(logoH * aspect, boardLen * (hasText ? 0.45f : 0.85f)) : 0f;
+            if (logoMat != null) logoH = logoW / aspect;
+            const float gap = 0.3f;
+            float textW = hasText ? Mathf.Min(boardLen - logoW - gap - 0.6f, 5.2f) : 0f;
+            float group = logoW + (logoMat != null && hasText ? gap : 0f) + textW;
+            float left = -group / 2f;
+
+            if (logoMat != null)
+            {
+                var logo = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                logo.name = $"Logo ({ad.name})";
+                Object.Destroy(logo.GetComponent<Collider>());
+                logo.transform.SetParent(parent, false);
+                logo.transform.localPosition = center + readRight * (left + logoW / 2f) + face * 0.005f;
+                logo.transform.localRotation = faceRot;
+                logo.transform.localScale = new Vector3(logoW, logoH, 1f);
+                var lr = logo.GetComponent<MeshRenderer>();
+                lr.sharedMaterial = logoMat;
+                lr.shadowCastingMode = ShadowCastingMode.Off;
+            }
+            if (hasText)
+            {
+                var tgo = new GameObject("Text");
+                tgo.transform.SetParent(parent, false);
+                tgo.transform.localRotation = faceRot;
+                tgo.transform.localPosition = center + readRight * (left + group - textW / 2f);
+                var tmp = tgo.AddComponent<TextMeshPro>();
+                tmp.text = ad.text;
+                tmp.fontStyle = FontStyles.Bold;
+                tmp.enableAutoSizing = true;
+                tmp.fontSizeMin = 2f;
+                tmp.fontSizeMax = 6f;
+                tmp.alignment = logoMat != null ? TextAlignmentOptions.Left : TextAlignmentOptions.Center;
+                tmp.color = textColor;
+                tmp.rectTransform.sizeDelta = new Vector2(textW, height * 0.8f);
+            }
+            return groupGo;
+        }
+
+        /// <summary>
+        /// LED-style rotation: every adRotateSeconds each board flips (squash and stretch vertically) to the next
+        /// sponsor. Boards are offset so neighbours show different sponsors, and all change together.
+        /// </summary>
+        void UpdateRotatingAds()
+        {
+            if (rotatingBoards.Count == 0) return;
+            float period = Mathf.Max(1f, adRotateSeconds);
+            float t = Time.time;
+            int cycle = Mathf.FloorToInt(t / period);
+            float into = t - cycle * period;
+            float flip = Mathf.Min(adFlipSeconds, period * 0.5f);
+            bool flipping = into < flip;
+            // First half of the flip: previous sponsor squashes away; second half: next one stretches in
+            int shownCycle = flipping && into < flip * 0.5f ? cycle - 1 : cycle;
+            float scaleY = flipping ? Mathf.Abs(Mathf.Cos(Mathf.PI * into / flip)) : 1f;
+
+            bool changed = shownCycle != lastShownCycle;
+            lastShownCycle = shownCycle;
+            foreach (var (groups, offset) in rotatingBoards)
+            {
+                int n = groups.Length;
+                int show = ((shownCycle + offset) % n + n) % n;
+                for (int k = 0; k < n; k++)
+                {
+                    bool on = k == show;
+                    if (changed && groups[k].activeSelf != on) groups[k].SetActive(on);
+                    if (on) groups[k].transform.localScale = new Vector3(1f, Mathf.Max(0.001f, scaleY), 1f);
+                }
+            }
+        }
+
+        /// <summary>Unlit, alpha-blended material for a logo so it shows its true colors on the board.</summary>
+        Material MakeLogoMaterial(Texture2D src, bool circular)
+        {
+            Texture2D tex = circular ? CutOutCircle(src) : src;
             var shader = Shader.Find("Universal Render Pipeline/Unlit");
             var m = new Material(shader);
             m.SetTexture("_BaseMap", tex);
@@ -557,6 +726,7 @@ namespace SoccerReplay
 
         void Update()
         {
+            UpdateRotatingAds();
             if (crowdGroups.Count == 0 || crowdMesh == null) return;
             float t = Time.time;
             foreach (var g in crowdGroups)
