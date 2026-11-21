@@ -37,6 +37,8 @@ namespace SoccerReplay
         public float playerMaxGap = 0.4f;
         [Tooltip("Longest gap (seconds) the ball is interpolated across before being hidden")]
         public float ballMaxGap = 1.0f;
+        [Tooltip("During fitted ball flights (ball_flights), draw the ball on the smooth arc instead of frame-by-frame points")]
+        public bool useFittedFlights = true;
 
         [Header("Look")]
         public Color homeColor = new Color(0.85f, 0.15f, 0.15f);
@@ -444,8 +446,23 @@ namespace SoccerReplay
         {
             visibleCount = 0;
 
-            // Ball first, so players can turn to face its current position
-            if (data.ball.Count > 0 && data.ball.TrySample(time, ballMaxGap, out var ballNow)) { lastBall = ballNow; ballVisible = true; }
+            // Ball first, so players can turn to face its current position.
+            // In a fitted flight, use the smooth arc; otherwise the frame-by-frame track.
+            var flight = useFittedFlights ? data.FlightAt(time) : null;
+            float ballHeightNow = 0f;
+            if (flight != null)
+            {
+                flight.Sample(time, out lastBall, out ballHeightNow);
+                ballVisible = true;
+            }
+            else if (data.ball.Count > 0 && data.ball.TrySample(time, ballMaxGap, out var ballNow))
+            {
+                lastBall = ballNow;
+                // When the file has fitted flights, they are the authority on when the ball is airborne:
+                // between flights it's on the ground (frame heights there come from gap-filling and conflict with the fits)
+                ballHeightNow = useFittedFlights && data.flights.Count > 0 ? 0f : data.ball.HeightAt(time);
+                ballVisible = true;
+            }
             else ballVisible = false;
 
             foreach (var (track, body) in players)
@@ -474,7 +491,7 @@ namespace SoccerReplay
             if (ballGo.gameObject.activeSelf != ballVisible) ballGo.gameObject.SetActive(ballVisible);
             if (ballVisible)
             {
-                lastBallHeight = data.ball.HeightAt(time);
+                lastBallHeight = ballHeightNow;
                 ballGo.localPosition = new Vector3(lastBall.x, BallRadius + lastBallHeight, lastBall.y);
             }
 
@@ -506,13 +523,14 @@ namespace SoccerReplay
             // Pass arc: visible while the pass is travelling and briefly after it arrives
             MatchEvent pass = null;
             foreach (var e in data.events)
-                if (e.type == "pass" && e.start != null && e.end != null && time >= e.t_start && time <= e.t_end + 1f) pass = e;
+                if (e.IsFlight && e.start != null && e.end != null && time >= e.t_start && time <= e.t_end + 1f) pass = e;
             passLine.enabled = pass != null;
             if (pass != null)
             {
                 var a = new Vector3(pass.start[0], 0.1f, pass.start[1]);
                 var b = new Vector3(pass.end[0], 0.1f, pass.end[1]);
-                float peak = pass.aerial ? Mathf.Max(0.5f, pass.max_height) : 0f;
+                bool lofted = pass.aerial || pass.type == "aerial_ball";
+                float peak = lofted ? Mathf.Max(0.5f, pass.max_height) : 0f;
                 for (int i = 0; i < PassLinePoints; i++)
                 {
                     float u = i / (float)(PassLinePoints - 1);
@@ -521,7 +539,10 @@ namespace SoccerReplay
                     passLine.SetPosition(i, p);
                 }
                 float fade = time > pass.t_end ? 1f - (time - pass.t_end) : 1f;
-                var c = pass.completed ? new Color(1f, 1f, 1f, 0.8f * fade) : new Color(1f, 0.3f, 0.3f, 0.8f * fade);
+                // White = completed pass, red = failed pass, amber = loose lofted ball (not a pass)
+                var c = pass.type == "aerial_ball" ? new Color(1f, 0.75f, 0.3f, 0.7f * fade)
+                      : pass.completed ? new Color(1f, 1f, 1f, 0.8f * fade)
+                      : new Color(1f, 0.3f, 0.3f, 0.8f * fade);
                 passLine.startColor = passLine.endColor = c;
                 passLine.material.color = c;
             }
@@ -598,6 +619,7 @@ namespace SoccerReplay
                 {
                     "pass" => $"{rel,5:F1}s  Pass  #{e.from} → #{e.to}   {e.length:F1} m{(e.aerial ? $", aerial ({e.max_height:F1} m high)" : "")}  {(e.completed ? "✓" : "✗")}",
                     "touch" => $"{rel,5:F1}s  Touch  #{e.player}{(e.duration > 1f ? $"  (on ball {e.duration:F1}s)" : "")}",
+                    "aerial_ball" => $"{rel,5:F1}s  Ball in the air  {e.max_height:F1} m high{(e.estimated ? " (est.)" : "")}",
                     _ => $"{rel,5:F1}s  {e.type}",
                 };
                 lines.Add((text, active));

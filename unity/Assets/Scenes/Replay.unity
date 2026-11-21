@@ -404,6 +404,10 @@ MonoBehaviour:
   - LIVE TACTICS
   - 3D MATCH REPLAY
   - HOME  vs  AWAY
+  boardLogo: {fileID: 2800000, guid: 8973dd846f0d34847a2e852099e9c2e6, type: 3}
+  logoText: SHEFFIELD THURSDAY
+  logoEvery: 1
+  circularLogo: 1
 --- !u!114 &1939742396
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -416,9 +420,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 76dadecb6255c2e47b33c9cb6ea5560b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SoccerReplay.ReplayController
-  matchFile: matches/match_events_v2.json
+  matchFile: matches/match_events_v4.json
   origin: 0
-  flipY: 0
+  flipY: 1
   minTrackSamples: 8
   smoothRadius: 2
   smoothWindow: 0.2
@@ -431,6 +435,15 @@ MonoBehaviour:
   awayColor: {r: 0.15, g: 0.35, b: 0.9, a: 1}
   homeKeeperColor: {r: 1, g: 0.85, b: 0.1, a: 1}
   awayKeeperColor: {r: 0.95, g: 0.3, b: 0.85, a: 1}
+  bodyMotion:
+    velocityWindow: 0.3
+    speedSmooth: 0.15
+    maxSpeed: 11
+    faceMoveAbove: 1.2
+    turnRate: 540
+    leanPerMs: 1.6
+    maxLean: 13
+    bobHeight: 0.06
   estimateKeepers: 1
   autoDetectSides: 1
   homeDefendsWest: 1
