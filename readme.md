@@ -6,7 +6,8 @@ app reads that JSON and replays the match in 3D.
 ---
 
 ## Demo
-![Demo](demo.gif)
+
+![Demo](demo.gif "Alt")
 
 ---
 
