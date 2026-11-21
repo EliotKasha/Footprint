@@ -54,14 +54,12 @@ Which for me yielded best performance on MacOS (M4). This could very well differ
 
 ## Tools
 
-| | used for |
-|---|---|
-| **Ultralytics YOLO** | three models: player detector (ball / goalkeeper / player / referee), dedicated ball detector, pitch keypoint (pose) model with 32 landmarks (Roboflow sports pitch config) |
-| **supervision / trackers** | ByteTrack multi-object tracking |
-| **OpenCV** | video I/O, homographies, optical flow (camera motion), colour conversion, drawing |
-| **NumPy / SciPy** | least-squares fits (line refinement, 3D ball flights), Hungarian matching (track stitching), smoothing |
-| **scikit-learn** | KMeans for splitting players into two teams by shirt colour |
-| **PyTorch** | runs the models (MPS on Apple Silicon, CUDA, or CPU) |
+* **Ultralytics YOLO:** Player detector (ball / goalkeeper / player / referee), dedicated ball detector, pitch keypoint model w/ 32 landmarks (Roboflow sports pitch config).
+* **Supervision / trackers:** ByteTrack multi-object tracking.
+* **OpenCV:** Video I/O, homographies, optical flow (camera motion), color conversion, drawing.
+* **NumPy / SciPy:** Least-squares fits (line refinement, 3D ball flights), Hungarian matching (track stitching), smoothing.
+* **Scikit-learn:** KMeans for team split by jersey color.
+* **PyTorch:** MPS ("GPU") binding for MacOS. Alternate binding needed for equivalent performance on other OS.
 
 ---
 
