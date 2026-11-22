@@ -6,16 +6,26 @@ The CV pipeline outputs `match_events.json` (players, ball, possession, passes a
 ## Running it
 1. Install **Unity 6.6 (6000.6.10f1)** via Unity Hub and open **this folder** (`unity/`) as a project.
 2. Open `Assets/Scenes/Replay.unity`.
-3. Press **Play**. (Or use the menu **Soccer Replay → Create Replay Scene and Play** to rebuild the scene.)
+3. Press **Play**. The empty stadium appears with a **No match loaded** panel.
+4. Click **Load match…** (or press `L`) and pick the pipeline's `match_events.json` from anywhere on your computer. The replay builds and plays it.
 
-**Controls:** Space play/pause · ←/→ skip 1 s · `[` `]` speed (0.25×–4×) · `1` `2` `3` broadcast / top-down / follow-ball camera · `4` free camera · `R` restart.
+> Note: the menu **Soccer Replay → Create Replay Scene and Play** rebuilds `Replay.unity` from scratch with default settings (no animated players, Flip Y off). Don't use it on the existing scene.
+
+**Controls:** Space play/pause · ←/→ skip 1 s · `[` `]` speed (0.25×–4×) · `1` `2` `3` broadcast / top-down / follow-ball camera · `4` free camera · `L` load match · `R` restart.
 
 **Free camera** (`4` or the **Free** button): hold the right mouse button and move the mouse to look, WASD to fly, E/Q up/down, Shift for 3× speed, mouse wheel to change fly speed (shown in the bottom bar). Works while paused.
 The bar at the bottom has the same controls plus a timeline slider. The top-left panel is a live event feed.
 
-**Loading a new CV output:** copy the JSON into `Assets/StreamingAssets/matches/`, select the `Replay` object and set **Match File**.
+**Choosing your own match files** (UnityStandaloneFileBrowser):
+- **Load match…** (bottom bar, start panel, or `L`) opens a native file dialog. Pick `match_events.json`: it contains everything in `match.json` plus ball height, possession, passes and ball flights, so it's the only file the replay needs.
+- If you pick `match.json` by mistake, the replay looks for `match_events.json` in the same folder and uses that; without it, it plays the tracking only (no ball in the air, no kick animations).
+- You can load a different match at any time. The loaded file is shown in the bottom bar, and the dialog reopens in the last folder used.
+- The picked file lasts until you stop Play; settings (Flip Y, sponsor boards, etc.) come from the open scene.
+- **Load Match On Start** on the `Replay` object (off by default) plays the scene's **Match File** straight away instead, e.g. for a demo. Files for that go in `Assets/StreamingAssets/matches/`.
 
 **Scenes** (same scripts, different clips; settings like Flip Y and the sponsor boards are saved per scene):
+Each scene's **Match File** (used when Load Match On Start is ticked):
+
 | Scene | Data | Clip |
 |---|---|---|
 | `Assets/Scenes/Replay.unity` | `matches/match_events_v5.json` | 60 s, play in the west half |
@@ -94,6 +104,7 @@ Almost everything is tunable on the `Replay` object's Inspector: Data cleanup, B
 | `Assets/Characters/` | Soccer Game Pack (Y Bot, X Bot, Mixamo clips) and the locomotion controllers |
 | `Assets/Replay/PitchBuilder.cs` | Pitch, markings and goals |
 | `Assets/Replay/StadiumBuilder.cs` | Stands, roof, crowd, ad boards, lighting and post-processing |
+| `Assets/StandaloneFileBrowser/` | [UnityStandaloneFileBrowser](https://github.com/gkngkc/UnityStandaloneFileBrowser) 1.2 (MIT): native open-file dialog on Windows, Mac and Linux (samples left out) |
 | `Assets/Replay/Editor/ReplaySceneSetup.cs` | **Soccer Replay** menu that builds the scene |
 | `Assets/StreamingAssets/matches/` | CV outputs used for testing (`match_events_v5.json` is the latest) |
 | `docs/plan.md` | Original weekend plan |
