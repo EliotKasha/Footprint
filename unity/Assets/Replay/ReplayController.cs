@@ -12,7 +12,7 @@ namespace SoccerReplay
     /// </summary>
     public class ReplayController : MonoBehaviour
     {
-        public enum CameraMode { Broadcast, TopDown, FollowBall, Free }
+        public enum CameraMode { Broadcast, TopDown, FollowBall, Free, BehindGoalLeft, BehindGoalRight }
 
         [Header("Free camera (key 4)")]
         [Tooltip("Fly speed (m/s); mouse wheel changes it while flying, Shift triples it")]
@@ -214,6 +214,10 @@ namespace SoccerReplay
         public float speed = 1f;
         public bool loop = true;
         public CameraMode cameraMode = CameraMode.Broadcast;
+        [Tooltip("Behind-goal view: metres behind the goal line (kept in front of the stand)")]
+        public float behindGoalDistance = 9f;
+        [Tooltip("Behind-goal view: camera height in metres")]
+        public float behindGoalHeight = 7f;
 
         MatchReplayData data;
         string loadError;
@@ -1160,6 +1164,7 @@ namespace SoccerReplay
             if (kb.digit1Key.wasPressedThisFrame) cameraMode = CameraMode.Broadcast;
             if (kb.digit2Key.wasPressedThisFrame) cameraMode = CameraMode.TopDown;
             if (kb.digit3Key.wasPressedThisFrame) cameraMode = CameraMode.FollowBall;
+            if (kb.digit5Key.wasPressedThisFrame) ToggleBehindGoal();
             if (kb.digit4Key.wasPressedThisFrame) EnterFreeCamera();
             if (kb.lKey.wasPressedThisFrame) OpenMatchDialog();
             if (kb.fKey.wasPressedThisFrame) ToggleFormationLines();
@@ -1336,6 +1341,14 @@ namespace SoccerReplay
             cameraFocus = Vector2.SmoothDamp(cameraFocus, target, ref cameraFocusVel, cameraFocusSmoothing, cameraFocusMaxSpeed, dt);
         }
 
+        /// <summary>Behind-the-goal view (5 key / Goal button): first press goes behind the left goal,
+        /// each further press switches to the other end. Jumps straight there instead of gliding over the pitch.</summary>
+        void ToggleBehindGoal()
+        {
+            cameraMode = cameraMode == CameraMode.BehindGoalLeft ? CameraMode.BehindGoalRight : CameraMode.BehindGoalLeft;
+            if (data != null && cam != null) SnapCamera();
+        }
+
         /// <summary>Switch to the free camera, starting from wherever the camera is now.</summary>
         void EnterFreeCamera()
         {
@@ -1438,6 +1451,18 @@ namespace SoccerReplay
                     pos = new Vector3(focus.x, 14f, Mathf.Max(focus.y - 20f, minZ));
                     look = new Vector3(focus.x, 0f, focus.y);
                     break;
+                case CameraMode.BehindGoalLeft:
+                case CameraMode.BehindGoalRight:
+                {
+                    // Raised camera just behind the goal, looking down the pitch; drifts a little with play
+                    float side = cameraMode == CameraMode.BehindGoalLeft ? -1f : 1f;
+                    float hl = data.length / 2f;
+                    float back = hl + behindGoalDistance;
+                    if (stadium != null) back = Mathf.Min(back, stadium.FrontHalfLength - 0.5f);   // stay in front of the stand
+                    pos = new Vector3(side * back, behindGoalHeight, focus.y * 0.25f);
+                    look = new Vector3(Mathf.Lerp(side * (hl - 30f), focus.x, 0.35f), 0f, focus.y * 0.6f);
+                    break;
+                }
                 default: // Broadcast: gantry at the front of the near stand, panning with play
                     if (stadium != null)
                         pos = new Vector3(focus.x * 0.6f, 21f, -stadium.FrontHalfWidth - 6f);
@@ -1521,6 +1546,9 @@ namespace SoccerReplay
             if (GUILayout.Toggle(cameraMode == CameraMode.TopDown, "Top-down", "Button", GUILayout.Width(85))) cameraMode = CameraMode.TopDown;
             if (GUILayout.Toggle(cameraMode == CameraMode.FollowBall, "Follow ball", "Button", GUILayout.Width(85))) cameraMode = CameraMode.FollowBall;
             if (GUILayout.Toggle(cameraMode == CameraMode.Free, "Free", "Button", GUILayout.Width(60)) && cameraMode != CameraMode.Free) EnterFreeCamera();
+            bool behindGoal = cameraMode == CameraMode.BehindGoalLeft || cameraMode == CameraMode.BehindGoalRight;
+            string goalLabel = cameraMode == CameraMode.BehindGoalLeft ? "Goal ◀" : cameraMode == CameraMode.BehindGoalRight ? "Goal ▶" : "Behind goal";
+            if (GUILayout.Toggle(behindGoal, goalLabel, "Button", GUILayout.Width(95)) != behindGoal) ToggleBehindGoal();   // clicking again switches ends
             if (matchOverlay != null && GUILayout.Button("Stats", GUILayout.Width(60))) matchOverlay.ToggleStats();
             if (matchOverlay != null && matchOverlay.links != null &&
                 GUILayout.Toggle(showFormationLines, "Lines", "Button", GUILayout.Width(60)) != showFormationLines) ToggleFormationLines();
@@ -1534,6 +1562,22 @@ namespace SoccerReplay
             GUILayout.EndHorizontal();
 
             GUILayout.EndArea();
+
+            DrawLinesLegend(area);
+        }
+
+        GUIStyle legendStyle;
+
+        /// <summary>Key for the formation line colours, just above the bottom bar while the lines are shown.</summary>
+        void DrawLinesLegend(Rect bar)
+        {
+            var links = matchOverlay != null ? matchOverlay.links : null;
+            if (links == null || !links.colorByLine || !links.gameObject.activeInHierarchy) return;
+            if (legendStyle == null) legendStyle = new GUIStyle(GUI.skin.label) { richText = true, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
+            string Swatch(Color c, string name) => $"<color=#{ColorUtility.ToHtmlStringRGB(c)}>■</color> {name}";
+            var r = new Rect(bar.xMax - 330, bar.y - 32, 330, 26);
+            GUI.Box(r, GUIContent.none);
+            GUI.Label(r, "Lines:  " + Swatch(links.ColorFor(0), "Defence") + "   " + Swatch(links.ColorFor(1), "Midfield") + "   " + Swatch(links.ColorFor(2), "Attack"), legendStyle);
         }
     }
 }
