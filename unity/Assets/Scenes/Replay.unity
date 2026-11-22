@@ -535,6 +535,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PitchOverlay.FormationLinkRenderer
   linkColor: {r: 1, g: 0.24, b: 0.55, a: 1}
+  colorByLine: 1
+  defenceColor: {r: 0.2, g: 0.5, b: 1, a: 1}
+  midfieldColor: {r: 0, g: 0.9, b: 0.9, a: 1}
+  attackColor: {r: 1, g: 0.25, b: 0.8, a: 1}
+  teamFilter: -1
+  defenceZoneEnd: 40
+  midfieldZoneEnd: 65
   maxOpacity: 0.85
   baseWidth: 0.35
   widthPerPass: 0.15
@@ -884,9 +891,11 @@ MonoBehaviour:
   speed: 1
   loop: 1
   cameraMode: 0
+  behindGoalDistance: 9
+  behindGoalHeight: 7
   ballDiameter: 0.4
   matchOverlay: {fileID: 675497994}
-  showFormationLines: 1
+  formationLines: 0
 --- !u!4 &1939742397
 Transform:
   m_ObjectHideFlags: 0

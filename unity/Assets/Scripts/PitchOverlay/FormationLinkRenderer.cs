@@ -15,9 +15,12 @@ namespace PitchOverlay
         public Color linkColor = new Color(1f, 0.24f, 0.55f, 1f);   // hot pink (used when colorByLine is off)
         [Tooltip("[REPLAY] Colour each line by its role: defence / midfield / attack")]
         public bool colorByLine = true;
-        public Color defenceColor = new Color(0.20f, 0.60f, 1.00f, 1f);   // blue
-        public Color midfieldColor = new Color(1.00f, 0.82f, 0.10f, 1f);  // yellow
-        public Color attackColor = new Color(1.00f, 0.22f, 0.22f, 1f);    // red
+        // (kept clear of the pass-line colours: white = completed, orange = aerial, red = missed; and the yellow ring)
+        public Color defenceColor = new Color(0.20f, 0.50f, 1.00f, 1f);   // blue
+        public Color midfieldColor = new Color(0.00f, 0.90f, 0.90f, 1f);  // turquoise
+        public Color attackColor = new Color(1.00f, 0.25f, 0.80f, 1f);    // magenta
+        [Tooltip("[REPLAY] Only draw this team's lines (0 or 1); -1 = both teams")]
+        public int teamFilter = -1;
         [Tooltip("With fewer than 3 lines on camera, a line's role comes from where it stands: closer to its own goal than this (metres) = defence...")]
         public float defenceZoneEnd = 40f;
         [Tooltip("...and closer than this = midfield, otherwise attack")]
@@ -73,6 +76,7 @@ namespace PitchOverlay
 
             for (int team = 0; team < 2; team++)
             {
+                if (teamFilter >= 0 && team != teamFilter) continue;    // [REPLAY] the other team's lines fade out
                 var pts = new List<Pt>();
                 foreach (var d in PlayerMotionDriver.ById.Values)
                 {
