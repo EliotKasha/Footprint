@@ -1074,23 +1074,33 @@ namespace SoccerReplay
         [Header("Stats overlay")]
         [Tooltip("The PitchOverlay MatchOverlay in the scene (scoreboard bar + STATS panel). Optional")]
         public PitchOverlay.MatchOverlay matchOverlay;
-        [Tooltip("Show the pink formation lines on the pitch (toggle in the app with the Lines button or F)")]
-        public bool showFormationLines = true;
+        public enum FormationLinesMode { Off, Team0, Team1 }
+        [Tooltip("Formation lines on the pitch: off, or one team's (the Lines button / F cycles Off → first team → second team)")]
+        public FormationLinesMode formationLines = FormationLinesMode.Off;
         bool overlayVisible;
 
-        /// <summary>Turn the formation lines on or off (Lines button / F key).</summary>
+        /// <summary>Cycle the formation lines: off → first team → second team → off (Lines button / F key).</summary>
         public void ToggleFormationLines()
         {
-            showFormationLines = !showFormationLines;
+            formationLines = (FormationLinesMode)(((int)formationLines + 1) % 3);
             ApplyFormationLinesVisibility();
         }
+
+        /// <summary>Name for a team on the Lines button: its kit colour when the white / black kits are used.</summary>
+        string LinesTeamName(int team) => useKitColors ? $"Team {team + 1}" : (team == 0 ? "White" : "Black");
+
+        string FormationLinesLabel() => formationLines == FormationLinesMode.Off ? "Lines: Off"
+                                     : "Lines: " + LinesTeamName(formationLines == FormationLinesMode.Team0 ? 0 : 1);
 
         /// <summary>The lines' object is active only while a match is loaded and the lines are switched on.
         /// Switching the whole object off hides every line at once (unticking the component would freeze them).</summary>
         void ApplyFormationLinesVisibility()
         {
             if (matchOverlay == null || matchOverlay.links == null) return;
-            matchOverlay.links.gameObject.SetActive(overlayVisible && showFormationLines);
+            var links = matchOverlay.links;
+            bool on = overlayVisible && formationLines != FormationLinesMode.Off;
+            links.teamFilter = formationLines == FormationLinesMode.Team1 ? 1 : 0;
+            links.gameObject.SetActive(on);
         }
 
         /// <summary>Show or hide the overlay's UI and pitch lines (hidden until a match is loaded).</summary>
@@ -1551,7 +1561,7 @@ namespace SoccerReplay
             if (GUILayout.Toggle(behindGoal, goalLabel, "Button", GUILayout.Width(95)) != behindGoal) ToggleBehindGoal();   // clicking again switches ends
             if (matchOverlay != null && GUILayout.Button("Stats", GUILayout.Width(60))) matchOverlay.ToggleStats();
             if (matchOverlay != null && matchOverlay.links != null &&
-                GUILayout.Toggle(showFormationLines, "Lines", "Button", GUILayout.Width(60)) != showFormationLines) ToggleFormationLines();
+                GUILayout.Toggle(formationLines != FormationLinesMode.Off, FormationLinesLabel(), "Button", GUILayout.Width(105)) != (formationLines != FormationLinesMode.Off)) ToggleFormationLines();
             if (cameraMode == CameraMode.Free)
                 GUILayout.Label($"  Right-drag look · WASD move · E/Q up/down · Shift fast · wheel speed ({freeMoveSpeed:F0} m/s)");
             GUILayout.FlexibleSpace();
