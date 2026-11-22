@@ -847,6 +847,7 @@ MonoBehaviour:
   cameraMode: 0
   ballDiameter: 0.4
   matchOverlay: {fileID: 675497994}
+  showFormationLines: 1
 --- !u!4 &1939742397
 Transform:
   m_ObjectHideFlags: 0
