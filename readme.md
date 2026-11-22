@@ -291,6 +291,15 @@ ones also have `fit_px` (how far the arc is from the detections, in pixels) and 
 
 ---
 
+## What's next?
+
+* Smoother tracking of lob shots / deflections
+* Increased generalizability to more horizontal shots (fewer markers in play)
+* Limb identification + non-interpolated animations
+* Real-time game processing
+
+---
+
 ## Credits
 
 * Eliot Kasha — Detection pipeline
