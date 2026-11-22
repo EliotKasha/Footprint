@@ -58,8 +58,10 @@ namespace SoccerReplay
         public bool useFittedFlights = true;
 
         [Header("Look")]
-        public Color homeColor = new Color(0.85f, 0.15f, 0.15f);
-        public Color awayColor = new Color(0.15f, 0.35f, 0.9f);
+        public Color homeColor = new Color(0.95f, 0.95f, 0.95f);   // white kit (team 0)
+        public Color awayColor = new Color(0.06f, 0.06f, 0.07f);   // black kit (team 1)
+        [Tooltip("Referee shirt (yellow, so it doesn't clash with a black or white kit)")]
+        public Color refereeColor = new Color(1f, 0.85f, 0.1f);
         public Color homeKeeperColor = new Color(1f, 0.85f, 0.1f);
         public Color awayKeeperColor = new Color(0.95f, 0.3f, 0.85f);
 
@@ -340,6 +342,7 @@ namespace SoccerReplay
         {
             cam = Camera.main;
             Application.runInBackground = true; // keep playing when the window loses focus
+            SetOverlayVisible(false);   // the stats overlay appears once a match is loaded
             if (pickedMatchPath == null && (!loadMatchOnStart || string.IsNullOrEmpty(matchFile)))
             {
                 BuildEmptyStadium();   // wait for Load match…
@@ -377,6 +380,7 @@ namespace SoccerReplay
             Debug.Log($"[Replay] Ball cleanup: {data.ballOutliersRemoved} false detections removed, " +
                       $"{data.ballSamplesFilled} gap samples filled from the player on the ball, {data.eventsDropped} phantom events dropped; " +
                       $"lobs: {data.flights.Count} arcs ({data.flightsAdded} added for aerial passes, {data.flightsCapped} height-capped)");
+            LoadOverlay(path);
 
             bool kits = useKitColors && data.hasKitColors;
             team0Color = kits ? data.kitColors[0] : homeColor;
@@ -427,14 +431,14 @@ namespace SoccerReplay
         {
             var homeMat = PitchBuilder.MakeMaterial(team0Color);
             var awayMat = PitchBuilder.MakeMaterial(team1Color);
-            var refMat = PitchBuilder.MakeMaterial(new Color(0.08f, 0.08f, 0.09f));
+            var refMat = PitchBuilder.MakeMaterial(refereeColor);
             var homeGkMat = PitchBuilder.MakeMaterial(homeKeeperColor);
             var awayGkMat = PitchBuilder.MakeMaterial(awayKeeperColor);
             // Chest stripe that contrasts with each kit (dark on light kits, white on dark kits)
             Material TrimFor(Color kit) => PitchBuilder.MakeMaterial(kit.grayscale > 0.55f ? new Color(0.1f, 0.1f, 0.14f) : new Color(0.95f, 0.95f, 0.95f));
             var homeTrimMat = TrimFor(team0Color);
             var awayTrimMat = TrimFor(team1Color);
-            var refTrimMat = PitchBuilder.MakeMaterial(new Color(1f, 0.85f, 0.1f));
+            var refTrimMat = PitchBuilder.MakeMaterial(new Color(0.08f, 0.08f, 0.09f));
             var actors = new GameObject("Players").transform;
             actors.SetParent(transform, false);
 
@@ -1057,7 +1061,71 @@ namespace SoccerReplay
             ApplyTime();
             UpdateKeepers(motionDt);
             UpdatePossessionAndPasses();
+            UpdateOverlayBridge();
             motionSnap = false;
+        }
+
+        // ---------------- Stats overlay (PitchOverlay: scoreboard bar, STATS panel, formation links) ----------------
+
+        [Header("Stats overlay")]
+        [Tooltip("The PitchOverlay MatchOverlay in the scene (scoreboard bar + STATS panel). Optional")]
+        public PitchOverlay.MatchOverlay matchOverlay;
+
+        /// <summary>Show or hide the overlay's UI and pitch lines (hidden until a match is loaded).</summary>
+        void SetOverlayVisible(bool visible)
+        {
+            if (matchOverlay == null) return;
+            // Hide the UI with a style rather than switching its object off: re-enabling a UIDocument rebuilds
+            // its visual tree, which would throw away the bar the StatsPanel built at startup
+            var doc = matchOverlay.panel != null ? matchOverlay.panel.GetComponent<UnityEngine.UIElements.UIDocument>() : null;
+            if (doc != null && doc.rootVisualElement != null)
+                doc.rootVisualElement.style.display = visible ? UnityEngine.UIElements.DisplayStyle.Flex : UnityEngine.UIElements.DisplayStyle.None;
+            if (matchOverlay.links != null) matchOverlay.links.gameObject.SetActive(visible);
+        }
+
+        /// <summary>Give the overlay the same file the replay is showing.</summary>
+        void LoadOverlay(string path)
+        {
+            if (matchOverlay == null) return;
+            SetOverlayVisible(true);
+            try { matchOverlay.LoadMatchFile(path); }
+            catch (System.Exception e) { Debug.LogWarning($"[Replay] Stats overlay couldn't read {path}: {e.Message}"); SetOverlayVisible(false); return; }
+            // No team names from an analysis file: name the teams after the kits we draw them in
+            var panel = matchOverlay.panel;
+            if (panel != null && panel.HasDefaultNames && !useKitColors) panel.SetTeamNames("White", "Black");
+        }
+
+        /// <summary>
+        /// Feed the overlay the replay's clock and the players on screen (see PlayerMotionDriver), so its stats
+        /// and formation lines follow pause, scrubbing and speed exactly like the 3D view.
+        /// </summary>
+        void UpdateOverlayBridge()
+        {
+            PlayerMotionDriver.Clock = time;
+            PlayerMotionDriver.ById.Clear();
+            if (matchOverlay == null) return;
+            if (estimateOffscreenPlayers)
+            {
+                foreach (var id in identities)
+                {
+                    // Only players the camera is tracking right now (estimates have no tracking id)
+                    if (id.referee || !id.real || id.currentPiece == null || !id.body.Active) continue;
+                    RegisterOverlayPlayer(id.body, id.currentPiece.id, id.team, id.currentPiece.goalkeeper);
+                }
+            }
+            else
+            {
+                foreach (var (tr, body) in players)
+                    if (!tr.referee && body.Active) RegisterOverlayPlayer(body, tr.id, tr.team, tr.goalkeeper);
+            }
+        }
+
+        static void RegisterOverlayPlayer(PlayerBody body, int id, int team, bool keeper)
+        {
+            var d = body.root.GetComponent<PlayerMotionDriver>();
+            if (d == null) d = body.root.gameObject.AddComponent<PlayerMotionDriver>();
+            d.Set(id, team, keeper, true);
+            PlayerMotionDriver.ById[id] = d;
         }
 
         void HandleInput()
@@ -1087,6 +1155,7 @@ namespace SoccerReplay
             snapKeepers = true;
             UpdateKeepers(0f);
             UpdatePossessionAndPasses();
+            UpdateOverlayBridge();
             motionSnap = false;
             if (cam != null) SnapCamera();
         }
@@ -1432,6 +1501,7 @@ namespace SoccerReplay
             if (GUILayout.Toggle(cameraMode == CameraMode.TopDown, "Top-down", "Button", GUILayout.Width(85))) cameraMode = CameraMode.TopDown;
             if (GUILayout.Toggle(cameraMode == CameraMode.FollowBall, "Follow ball", "Button", GUILayout.Width(85))) cameraMode = CameraMode.FollowBall;
             if (GUILayout.Toggle(cameraMode == CameraMode.Free, "Free", "Button", GUILayout.Width(60)) && cameraMode != CameraMode.Free) EnterFreeCamera();
+            if (matchOverlay != null && GUILayout.Button("Stats", GUILayout.Width(60))) matchOverlay.ToggleStats();
             if (cameraMode == CameraMode.Free)
                 GUILayout.Label($"  Right-drag look · WASD move · E/Q up/down · Shift fast · wheel speed ({freeMoveSpeed:F0} m/s)");
             GUILayout.FlexibleSpace();

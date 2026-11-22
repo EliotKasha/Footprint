@@ -9,12 +9,19 @@ The CV pipeline outputs `match_events.json` (players, ball, possession, passes a
 3. Press **Play**. The empty stadium appears with a **No match loaded** panel.
 4. Click **Load match…** (or press `L`) and pick the pipeline's `match_events.json` from anywhere on your computer. The replay builds and plays it.
 
+**Standalone build (Windows):** File → Build Profiles, scene list = `Replay.unity` only, Windows x64, Build. Run the `.exe` with all the files next to it. Already set up for this project: DirectX 11 (DirectX 12 showed a grey screen on hybrid-graphics laptops), .NET Framework API level (for the file dialog), and `Soccer Replay → Prepare Build Shaders`, which runs automatically before every build and saves one material per shader variant the game creates in code into `Assets/Replay/Resources/BuildShaderVariants/` (without it the build strips them and crashes or draws things wrong).
+
 > Note: the menu **Soccer Replay → Create Replay Scene and Play** rebuilds `Replay.unity` from scratch with default settings (no animated players, Flip Y off). Don't use it on the existing scene.
 
-**Controls:** Space play/pause · ←/→ skip 1 s · `[` `]` speed (0.25×–4×) · `1` `2` `3` broadcast / top-down / follow-ball camera · `4` free camera · `L` load match · `R` restart.
+**Controls:** Space play/pause · ←/→ skip 1 s · `[` `]` speed (0.25×–4×) · `1` `2` `3` broadcast / top-down / follow-ball camera · `4` free camera · `L` load match · `Tab` stats panel · `R` restart.
 
 **Free camera** (`4` or the **Free** button): hold the right mouse button and move the mouse to look, WASD to fly, E/Q up/down, Shift for 3× speed, mouse wheel to change fly speed (shown in the bottom bar). Works while paused.
 The bar at the bottom has the same controls plus a timeline slider. The top-left panel is a live event feed.
+
+**Stats overlay** (from the analysis teammates' `PitchOverlay` scripts): once a match is loaded, a scoreboard bar sits across the top over the stands: team names, score (`– : –` until set), clock, possession, and each team's measured shape chip (`DEFENDING 4-5-1`, or `–` when not measured). **STATS** on the bar, **Stats** in the bottom bar, or `Tab` opens the full panel: goal threat (placeholder estimate), passes, and team shape (width, depth, line height). **Formation lines** (pink) link neighbouring tracked players in each team's line and thicken with passes between them; toggle the **Formation Link Renderer** component on `Stats Overlay → FormationLinks`.
+- The overlay reads the same file you load and follows the replay clock (pause, scrub, speed, loop).
+- Measured shapes come from a `<match file>.analysis.json` next to the match file, made by formation-ml's `export_for_unity.py`. It's only used if its `source_clip` is that same file. Team names come from it too; otherwise the teams are called White and Black.
+- The overlay reads the raw JSON, not the replay's cleaned data, so a phantom pass the replay dropped can still count in the panel.
 
 **Choosing your own match files** (UnityStandaloneFileBrowser):
 - **Load match…** (bottom bar, start panel, or `L`) opens a native file dialog. Pick `match_events.json`: it contains everything in `match.json` plus ball height, possession, passes and ball flights, so it's the only file the replay needs.
@@ -36,7 +43,7 @@ Each scene's **Match File** (used when Load Match On Start is ticked):
 ### Replay
 - Loads the CV team's JSON (any frame rate). Positions are in meters, and center or corner origin is detected (or read from `pitch.origin`).
 - **Flip Y** mirrors the pitch top to bottom. It's on for the current data, because the CV y axis points the other way.
-- Players wear the **real kit colors** from the file's `teams` block (falls back to red and blue), with a chest stripe that contrasts with each kit. They're labeled with their tracking ID and smoothly interpolated. **Referees** are drawn in black ("REF").
+- Kits: currently **white (team 0) vs black (team 1)** (Home / Away Color). Tick **Use Kit Colors** to use the file's `teams` colors instead. Players are labeled with their tracking ID and smoothly interpolated. **Referees** are drawn in yellow ("REF").
 - **Goalkeepers:** solid when tracked. When off camera they're semi-transparent ("GK (est.)"), stay near where they were last or next seen, and are capped at walking speed. A keeper the camera never sees is estimated from the ball's position.
 - **Keeper validation:** each team's goal is decided from the keeper with the most data. A track labeled goalkeeper that averages more than 25 m from its own goal is treated as a misclassified outfield player.
 
@@ -48,7 +55,7 @@ Broadcast footage only shows part of the pitch, so players drop in and out of th
 - Tunable under **Off-camera players** on the `Replay` object (see-through amount, hold time, team follow, join gap and speed). This is a first version and still needs tuning.
 
 ### Animated players
-- Players are **animated Mixamo Y Bots** (from the Soccer Game Pack in `Assets/Characters/SoccerGamePack/`), tinted with the team kit (body in the kit color, joints in a contrasting color). Keepers and the referee get their own colors, and estimated off-camera players use the see-through look.
+- Players are a **textured Mixamo human footballer** (`Assets/Characters/Ch38/`, set as **Player Model**). The shirt and socks are tinted with the team kit color and the shorts with the contrast color; skin, hair and boots keep their textures. Keepers and the referee get their own colors, and estimated off-camera players use a see-through version. The **Y Bot** mannequin (`Assets/Characters/SoccerGamePack/`) still works: set it back as Player Model. All animations work on either, since they share the humanoid rig.
 - **Locomotion blend tree** (`Assets/Characters/PlayerLocomotion.controller`): a 2D freeform-directional tree on body-relative velocity. `offensive idle` is in the center, **Walking** at 1.68 m/s, and the **8-direction jog set** at about 2.4 m/s, each placed at its measured speed and direction. Goalkeepers use the same tree with `goalkeeper idle` (`KeeperLocomotion.overrideController`).
 - Animation speed follows ground speed (above jog speed the jog plays up to 1.6× faster) and replay time (it freezes on pause and scales with playback speed). Players' steps are offset so they don't move in sync. Root motion is off, so players stay exactly on their tracked positions.
 - **Soccer Replay → Setup Animated Players** rebuilds everything (clip import settings, blend tree, keeper variant, wiring). Drop `Running` / `Fast Run` / `Sprint` clips into the pack folder and re-run it to add faster gaits.
@@ -87,6 +94,7 @@ The CV output still has errors, so the loader fixes them before playback:
 - A two-tier bowl with closed corners, concourse, aisles and roof, built in code to fit the 105 × 68 m pitch.
 - About 13k instanced crowd figures in team colors with an away section, and a gentle bob.
 - **Rotating sponsor boards** (LED style): every 6 s each board flips to the next sponsor (**CodeJam 16**, **IBM**, **Sheffield Thursday**), with neighboring boards showing different sponsors, all on a uniform white background. Sponsors are a list under **Stadium Builder → Board Ads** (logo, text, size, optional circle crop). Logos are in `Assets/Replay/Textures/`; the CodeJam logo was rendered from its SVG.
+- **Goals** with a see-through 12 cm net on the back, roof and sides, rear posts and ground bars. From the broadcast camera the net fades to a light haze.
 - Sunny-afternoon lighting with the stand shadow across the pitch, procedural sky, haze, post-processing (ACES, bloom, vignette) and MSAA.
 - The broadcast camera sits on a gantry at the front of the main stand. It follows a smoothed play position (0.6 s smoothing, max 18 m/s, falling back to the players when the ball is lost), so a stray ball detection can't swing it to the other end.
 - **Shadow Strength** (0.4) controls how dark the stand's shadow across the pitch is.
@@ -102,7 +110,11 @@ Almost everything is tunable on the `Replay` object's Inspector: Data cleanup, B
 | `Assets/Replay/MatchActions.cs` | Action clips, the event → action scheduler, contact alignment and mirroring |
 | `Assets/Replay/Editor/AnimatedPlayersSetup.cs` | **Soccer Replay → Setup Animated Players**: clip import, blend tree, keeper override |
 | `Assets/Characters/` | Soccer Game Pack (Y Bot, X Bot, Mixamo clips) and the locomotion controllers |
-| `Assets/Replay/PitchBuilder.cs` | Pitch, markings and goals |
+| `Assets/Replay/PitchBuilder.cs` | Pitch, markings, goals and nets |
+| `Assets/Scripts/PitchOverlay/` | Stats overlay from the analysis side (scoreboard bar, STATS panel, formation lines, measured shapes). Only change: a same-clip check in `MatchOverlay.cs`, marked `[REPLAY]` |
+| `Assets/Replay/PlayerMotionDriver.cs` | Adapter: gives the overlay scripts the replay's clock and on-screen players |
+| `Assets/Replay/UI/` | UI Toolkit panel settings and theme for the overlay |
+| `Assets/Replay/Editor/BuildShaderVariants.cs` | Keeps code-created shader variants in standalone builds (runs before every build) |
 | `Assets/Replay/StadiumBuilder.cs` | Stands, roof, crowd, ad boards, lighting and post-processing |
 | `Assets/StandaloneFileBrowser/` | [UnityStandaloneFileBrowser](https://github.com/gkngkc/UnityStandaloneFileBrowser) 1.2 (MIT): native open-file dialog on Windows, Mac and Linux (samples left out) |
 | `Assets/Replay/Editor/ReplaySceneSetup.cs` | **Soccer Replay** menu that builds the scene |
@@ -149,11 +161,13 @@ These are minor polish items. Everything works, but they're worth tuning:
 - **Contact alignment** is good on average (median 0.03 m) but a few kicks are still about 0.6 m off, and actions by estimated (off-camera) players can't be aligned as precisely.
 - **Off-camera player estimates** (first version) need tuning: hold time, team-follow amount, how readily tracks are joined (a wrong join can make an estimate glide somewhere odd), and how see-through estimates are.
 - **Faster gaits:** there are no running or sprint clips yet, so the jog plays up to 1.6× faster above about 2.4 m/s. Add `Running` / `Fast Run` and re-run **Setup Animated Players**.
-- **Character realism:** players are Y Bot mannequins. Swapping in textured Mixamo human characters (same rig, so all animations carry over) is the next visual upgrade.
+- **One character for everyone:** all players share one face and hair; adding a second Mixamo character would add variety. The white kit reads light grey in the stand's shadow.
+- **Stats overlay:** shape chips show `–` until analysis files exist for our clips (`match_events_v5/v6.analysis.json`), and clips need ~10 s of each phase for a shape. Score needs `SetScore`; goal threat is a placeholder. Both teams' formation lines are the same pink, and with only part of a team on camera the lines can zigzag. There's no in-app toggle for the lines yet.
+- **Goal nets in the .exe** were reported looking different from the Editor; not yet diagnosed.
 - **Camera smoothing** values (0.6 s, 18 m/s) haven't been tuned by eye on every clip yet.
 - **Headers** are wired up but haven't been seen yet, since no clip so far has a flight ending above 1.2 m.
 - **Data side:** keepers sometimes switch IDs (#22/#23 in match 2), camera calibration coasts most frames, and Flip Y is still needed. These are noted in "Notes for the CV side".
 
 ## Next up
-- The tweaks above, then a side panel for formations and player ratings from the analysis model.
-- A standalone build and a backup demo video.
+- The tweaks above, analysis files for our clips, and player ratings from the analysis model.
+- A backup demo video.
