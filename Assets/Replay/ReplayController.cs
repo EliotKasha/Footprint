@@ -305,6 +305,31 @@ namespace SoccerReplay
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void ResetPickedMatch() { pickedMatchPath = null; pickedMatchNote = null; }
 
+        // Full screen: the built app always opens full screen at the monitor's resolution (Windows remembers the
+        // last window size in the registry and would otherwise reopen windowed). F11 switches full screen / window.
+        static bool startedFullscreen;
+
+        static void EnsureFullscreenOnLaunch()
+        {
+            if (startedFullscreen || Application.isEditor) return;
+            startedFullscreen = true;
+            var r = Screen.currentResolution;
+            Screen.SetResolution(r.width, r.height, FullScreenMode.FullScreenWindow);
+        }
+
+        static void HandleFullscreenKey()
+        {
+            var kb = Keyboard.current;
+            if (kb == null || !kb.f11Key.wasPressedThisFrame || Application.isEditor) return;
+            if (Screen.fullScreenMode == FullScreenMode.Windowed)
+            {
+                var r = Screen.currentResolution;
+                Screen.SetResolution(r.width, r.height, FullScreenMode.FullScreenWindow);
+            }
+            else Screen.SetResolution(Mathf.RoundToInt(Screen.currentResolution.width * 0.75f),
+                                      Mathf.RoundToInt(Screen.currentResolution.height * 0.75f), FullScreenMode.Windowed);
+        }
+
         /// <summary>
         /// The pipeline writes two files: match.json (tracking) and match_events.json (the same tracking plus
         /// possession, passes, ball height and flights). Whichever of them are picked, use the one with events,
@@ -345,6 +370,7 @@ namespace SoccerReplay
         void Start()
         {
             cam = Camera.main;
+            EnsureFullscreenOnLaunch();
             Application.runInBackground = true; // keep playing when the window loses focus
             SetOverlayVisible(false);   // the stats overlay appears once a match is loaded
             if (pickedMatchPath == null && (!loadMatchOnStart || string.IsNullOrEmpty(matchFile)))
@@ -1044,6 +1070,7 @@ namespace SoccerReplay
 
         void Update()
         {
+            HandleFullscreenKey();
             if (data == null)
             {
                 var keys = Keyboard.current;

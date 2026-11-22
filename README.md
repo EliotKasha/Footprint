@@ -13,7 +13,7 @@ The CV pipeline outputs `match_events.json` (players, ball, possession, passes a
 
 > Note: the menu **Soccer Replay → Create Replay Scene and Play** rebuilds `Replay.unity` from scratch with default settings (no animated players, Flip Y off). Don't use it on the existing scene.
 
-**Controls:** Space play/pause · ←/→ skip 1 s · `[` `]` speed (0.25×–4×) · `1` `2` `3` broadcast / top-down / follow-ball camera · `4` free camera · `5` behind the goal (press again for the other end) · `L` load match · `Tab` stats panel · `F` formation lines (off → White → Black) · `R` restart.
+**Controls:** Space play/pause · ←/→ skip 1 s · `[` `]` speed (0.25×–4×) · `1` `2` `3` broadcast / top-down / follow-ball camera · `4` free camera · `5` behind the goal (press again for the other end) · `L` load match · `Tab` stats panel · `F` formation lines (off → White → Black) · `R` restart · `F11` full screen / window (the app opens full screen).
 
 **Free camera** (`4` or the **Free** button): hold the right mouse button and move the mouse to look, WASD to fly, E/Q up/down, Shift for 3× speed, mouse wheel to change fly speed (shown in the bottom bar). Works while paused.
 The bar at the bottom has the same controls plus a timeline slider. The top-left panel is a live event feed.
