@@ -8,7 +8,7 @@ namespace SoccerReplay
 {
     /// <summary>
     /// Loads a tracking JSON from StreamingAssets and replays it in 3D.
-    /// Controls: Space play/pause · Left/Right skip 1s · [ ] speed · 1/2/3 camera, 4 free camera · R restart
+    /// Controls: Space play/pause · Left/Right skip 1s · [ ] speed · 1/2/3 camera, 4 free camera · L load match · R restart
     /// </summary>
     public class ReplayController : MonoBehaviour
     {
@@ -24,6 +24,8 @@ namespace SoccerReplay
         [Header("Data")]
         [Tooltip("Path inside Assets/StreamingAssets")]
         public string matchFile = "matches/match_events_v2.json";
+        [Tooltip("Off: pressing Play shows the empty stadium and waits for Load match… (L). On: plays Match File straight away")]
+        public bool loadMatchOnStart = false;
         public OriginMode origin = OriginMode.Auto;
         [Tooltip("Mirror the pitch across its length if the replay looks left/right swapped vs. the video")]
         public bool flipY = false;
@@ -252,11 +254,99 @@ namespace SoccerReplay
 
         static readonly float[] Speeds = { 0.25f, 0.5f, 1f, 2f, 4f };
 
+        // ---------------- Loading a match from disk (Load match… / L) ----------------
+
+        /// <summary>
+        /// File picked with Load match…, kept across the scene reload that rebuilds the replay.
+        /// Static, so it lasts for this play session only; the scene's Match File is unchanged.
+        /// </summary>
+        static string pickedMatchPath;
+        static string pickedMatchNote;
+        string loadedName;
+
+        /// <summary>Open a native file dialog for the pipeline's JSON (match.json and/or match_events.json) and replay it.</summary>
+        public void OpenMatchDialog()
+        {
+            string dir = "";
+            try { dir = PlayerPrefs.GetString("Replay.LastDir", ""); } catch { }
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) dir = Application.streamingAssetsPath;
+            var picked = SFB.StandaloneFileBrowser.OpenFilePanel(
+                "Load match: match_events.json and/or match.json", dir,
+                new[] { new SFB.ExtensionFilter("Match JSON", "json") }, true);
+            if (picked == null || picked.Length == 0) return;   // cancelled
+            LoadMatchFiles(picked);
+        }
+
+        /// <summary>Replay the given file(s) from disk (absolute paths): match_events.json and/or match.json.</summary>
+        public void LoadMatchFiles(params string[] picked)
+        {
+            string chosen = ChooseMatchFile(picked, out string note);
+            if (chosen == null) { loadError = note; return; }
+            try { PlayerPrefs.SetString("Replay.LastDir", Path.GetDirectoryName(chosen)); PlayerPrefs.Save(); } catch { }
+            pickedMatchPath = chosen;
+            pickedMatchNote = note;
+            Debug.Log($"[Replay] Loading {chosen} ({note})");
+            // Reload this scene so the replay rebuilds from scratch with the new file
+#if UNITY_EDITOR
+            UnityEditor.SceneManagement.EditorSceneManager.LoadSceneInPlayMode(gameObject.scene.path,
+                new UnityEngine.SceneManagement.LoadSceneParameters(UnityEngine.SceneManagement.LoadSceneMode.Single));
+#else
+            UnityEngine.SceneManagement.SceneManager.LoadScene(gameObject.scene.buildIndex);
+#endif
+        }
+
+        // Each press of Play starts from the scene's own Match File (also when domain reload is disabled)
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetPickedMatch() { pickedMatchPath = null; pickedMatchNote = null; }
+
+        /// <summary>
+        /// The pipeline writes two files: match.json (tracking) and match_events.json (the same tracking plus
+        /// possession, passes, ball height and flights). Whichever of them are picked, use the one with events,
+        /// looking next to the picked file for its partner, and fall back to tracking only.
+        /// </summary>
+        static string ChooseMatchFile(string[] picked, out string note)
+        {
+            var candidates = new List<string>();
+            foreach (var p in picked)
+            {
+                if (string.IsNullOrEmpty(p) || !File.Exists(p)) continue;
+                candidates.Add(p);
+                string folder = Path.GetDirectoryName(p);
+                string stem = Path.GetFileNameWithoutExtension(p);
+                foreach (var partner in new[] { "match_events.json", stem + "_events.json", "match.json" })
+                {
+                    string q = Path.Combine(folder, partner);
+                    if (File.Exists(q) && !candidates.Contains(q)) candidates.Add(q);
+                }
+            }
+            if (candidates.Count == 0) { note = "No readable JSON file was picked."; return null; }
+
+            foreach (var c in candidates)
+            {
+                string text;
+                try { text = File.ReadAllText(c); } catch { continue; }
+                if (text.Contains("\"events\"") || text.Contains("\"ball_flights\""))
+                {
+                    bool fromPicked = System.Array.IndexOf(picked, c) >= 0;
+                    note = fromPicked ? "with events" : $"with events, found next to {Path.GetFileName(picked[0])}";
+                    return c;
+                }
+            }
+            note = "tracking only, no events file found";
+            return candidates[0];
+        }
+
         void Start()
         {
             cam = Camera.main;
             Application.runInBackground = true; // keep playing when the window loses focus
-            string path = Path.Combine(Application.streamingAssetsPath, matchFile);
+            if (pickedMatchPath == null && (!loadMatchOnStart || string.IsNullOrEmpty(matchFile)))
+            {
+                BuildEmptyStadium();   // wait for Load match…
+                return;
+            }
+            string path = pickedMatchPath ?? Path.Combine(Application.streamingAssetsPath, matchFile);
+            loadedName = pickedMatchPath != null ? $"{Path.GetFileName(Path.GetDirectoryName(pickedMatchPath))}/{Path.GetFileName(pickedMatchPath)} ({pickedMatchNote})" : matchFile;
             try
             {
                 var clean = new MatchReplayData.CleanOptions
@@ -278,7 +368,7 @@ namespace SoccerReplay
                 return;
             }
 
-            Debug.Log($"[Replay] Loaded {matchFile}: {data.Duration:F1}s, {data.players.Count} player tracks " +
+            Debug.Log($"[Replay] Loaded {loadedName}: {data.Duration:F1}s, {data.players.Count} player tracks " +
                       $"({data.droppedShortTracks} of {data.rawIdCount} IDs dropped as noise, " +
                       $"{data.players.FindAll(p => p.goalkeeper).Count} goalkeepers), " +
                       $"{data.ball.Count} ball samples, origin={(data.cornerOrigin ? "corner" : "center")}");
@@ -301,6 +391,36 @@ namespace SoccerReplay
             BuildActionSchedule();
             time = data.startTime;
             if (cam != null) SnapCamera();
+        }
+
+        /// <summary>No match yet: show the pitch and stadium from the broadcast gantry, and the Load match prompt.</summary>
+        void BuildEmptyStadium()
+        {
+            loadedName = null;
+            const float length = 105f, width = 68f;
+            PitchBuilder.Build(transform, length, width);
+            stadium = GetComponent<StadiumBuilder>();
+            if (stadium != null && stadium.enabled) stadium.Build(length, width, cam, homeColor, awayColor);
+            else stadium = null;
+            if (cam != null)
+            {
+                cam.transform.position = new Vector3(0f, 22f, -(width / 2f + 34f));
+                cam.transform.rotation = Quaternion.LookRotation(new Vector3(0f, 0f, 0f) - cam.transform.position);
+            }
+        }
+
+        void DrawStartPanel()
+        {
+            var r = new Rect(Screen.width / 2f - 210f, Screen.height / 2f - 70f, 420f, 130f);
+            GUI.Box(r, "");
+            GUILayout.BeginArea(new Rect(r.x + 16, r.y + 14, r.width - 32, r.height - 28));
+            var title = new GUIStyle(GUI.skin.label) { fontSize = 18, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+            GUILayout.Label("No match loaded", title);
+            GUILayout.Label("Pick the pipeline's match_events.json to replay it.",
+                            new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, wordWrap = true });
+            GUILayout.Space(8);
+            if (GUILayout.Button("Load match…  (L)", GUILayout.Height(32))) OpenMatchDialog();
+            GUILayout.EndArea();
         }
 
         void BuildActors()
@@ -916,7 +1036,12 @@ namespace SoccerReplay
 
         void Update()
         {
-            if (data == null) return;
+            if (data == null)
+            {
+                var keys = Keyboard.current;
+                if (keys != null && keys.lKey.wasPressedThisFrame && loadError == null) OpenMatchDialog();
+                return;
+            }
             HandleInput();
 
             motionDt = playing ? Time.deltaTime * speed : 0f;
@@ -949,6 +1074,7 @@ namespace SoccerReplay
             if (kb.digit2Key.wasPressedThisFrame) cameraMode = CameraMode.TopDown;
             if (kb.digit3Key.wasPressedThisFrame) cameraMode = CameraMode.FollowBall;
             if (kb.digit4Key.wasPressedThisFrame) EnterFreeCamera();
+            if (kb.lKey.wasPressedThisFrame) OpenMatchDialog();
         }
 
         public void Seek(float t)
@@ -1275,9 +1401,10 @@ namespace SoccerReplay
             if (loadError != null)
             {
                 GUI.Box(new Rect(10, 10, 600, 60), loadError);
+                if (GUI.Button(new Rect(10, 76, 140, 28), "Load match…")) { loadError = null; OpenMatchDialog(); }
                 return;
             }
-            if (data == null) return;
+            if (data == null) { DrawStartPanel(); return; }
 
             DrawEventFeed();
 
@@ -1287,6 +1414,7 @@ namespace SoccerReplay
             GUILayout.BeginArea(new Rect(area.x + 8, area.y + 6, area.width - 16, area.height - 12));
 
             GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Load match…", GUILayout.Width(100))) OpenMatchDialog();
             if (GUILayout.Button(playing ? "Pause" : "Play", GUILayout.Width(70))) playing = !playing;
             if (GUILayout.Button("Restart", GUILayout.Width(70))) Seek(data.startTime);
             GUILayout.Label($"{time - data.startTime:F1}s / {data.Duration:F1}s", GUILayout.Width(110));
@@ -1310,7 +1438,7 @@ namespace SoccerReplay
             int keepersReal = keepers.FindAll(k => k.realWeight > 0.5f).Count;
             string keeperInfo = keepers.Count > 0 ? $"   Keepers: {keepersReal} tracked, {keepers.Count - keepersReal} estimated" : "";
             string estInfo = identities.Count > 0 ? $"  (+{estimatedCount} estimated off camera)" : "";
-            GUILayout.Label($"Players tracked: {visibleCount}{estInfo}{keeperInfo}   Ball: {(ballVisible ? "yes" : "lost")}");
+            GUILayout.Label($"{loadedName}   Players tracked: {visibleCount}{estInfo}{keeperInfo}   Ball: {(ballVisible ? "yes" : "lost")}");
             GUILayout.EndHorizontal();
 
             GUILayout.EndArea();
