@@ -187,6 +187,7 @@ across runs, though team 0/1 is.
 ### Events
 
 ```jsonc
+// Ex.
 {"type": "touch", "t": 0.967, "player": 14, "team": 1, "x": -17.67, "y": -18.38, "duration": 1.07}
 {"type": "pass", "t_start": 2.0, "t_end": 4.4, "from": 14, "to": 16, "team": 1,
  "start": [-15.7, -14.9], "end": [-1.6, -30.9], "length": 21.3, "completed": true, "aerial": true, "max_height": 0.6}
