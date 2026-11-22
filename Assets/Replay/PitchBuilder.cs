@@ -18,9 +18,11 @@ namespace SoccerReplay
         }
 
         /// <summary>URP Lit material switched to alpha-blended transparency, so its color alpha can fade it.</summary>
-        public static Material MakeTransparentMaterial(Color color)
+        public static Material MakeTransparentMaterial(Color color) => MakeTransparent(MakeMaterial(color));
+
+        /// <summary>Switch an existing URP Lit material (e.g. a textured character material) to alpha-blended transparency.</summary>
+        public static Material MakeTransparent(Material m)
         {
-            var m = MakeMaterial(color);
             m.SetFloat("_Surface", 1f); // Transparent
             m.SetFloat("_Blend", 0f);   // Alpha
             m.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
@@ -149,10 +151,74 @@ namespace SoccerReplay
             bar.transform.localPosition = new Vector3(gx, height, 0f);
             bar.transform.localScale = new Vector3(post, post, halfMouth * 2f + post);
 
-            var netMat = MakeMaterial(new Color(0.85f, 0.85f, 0.85f));
-            var net = Primitive(PrimitiveType.Cube, "Net", goal, netMat);
-            net.transform.localPosition = new Vector3(gx + side * depth, height / 2f, 0f);
-            net.transform.localScale = new Vector3(0.02f, height, halfMouth * 2f);
+            // Back frame: rear posts and ground bars that hold the net
+            float backX = gx + side * depth;
+            float thin = post / 2f;
+            foreach (float z in new[] { -halfMouth, halfMouth })
+            {
+                var rear = Primitive(PrimitiveType.Cube, "Rear Post", goal, mat);
+                rear.transform.localPosition = new Vector3(backX, height / 2f, z);
+                rear.transform.localScale = new Vector3(thin, height, thin);
+                var ground = Primitive(PrimitiveType.Cube, "Ground Bar", goal, mat);
+                ground.transform.localPosition = new Vector3(gx + side * depth / 2f, thin / 2f, z);
+                ground.transform.localScale = new Vector3(depth, thin, thin);
+            }
+            var backGround = Primitive(PrimitiveType.Cube, "Ground Bar", goal, mat);
+            backGround.transform.localPosition = new Vector3(backX, thin / 2f, 0f);
+            backGround.transform.localScale = new Vector3(thin, thin, halfMouth * 2f);
+
+            // Net on every surface: back, roof and both sides
+            var netBack = NetPanel(goal, "Net Back", halfMouth * 2f, height);
+            netBack.localPosition = new Vector3(backX, height / 2f, 0f);
+            netBack.localRotation = Quaternion.Euler(0f, 90f, 0f);
+
+            var roof = NetPanel(goal, "Net Roof", halfMouth * 2f, depth);
+            roof.localPosition = new Vector3(gx + side * depth / 2f, height, 0f);
+            roof.localRotation = Quaternion.Euler(90f, 90f, 0f);
+
+            foreach (float z in new[] { -halfMouth, halfMouth })
+            {
+                var sidePanel = NetPanel(goal, "Net Side", depth, height);
+                sidePanel.localPosition = new Vector3(gx + side * depth / 2f, height / 2f, z);
+            }
+        }
+
+        // ---------------- Goal net ----------------
+
+        const float NetCell = 0.12f;       // mesh hole size (m), like a real 12 cm goal net
+        const int NetCellsPerTile = 4;     // cells drawn in one repeat of the texture
+        static Texture2D netTexture;
+
+        /// <summary>White cords on transparent cells; mipmaps fade it to a light haze at broadcast distance.</summary>
+        static Texture2D NetTexture()
+        {
+            if (netTexture != null) return netTexture;
+            const int size = 64, cell = size / NetCellsPerTile, cord = 2;
+            netTexture = new Texture2D(size, size, TextureFormat.RGBA32, true) { name = "Goal Net", wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Trilinear, anisoLevel = 8 };
+            var px = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                {
+                    bool line = x % cell < cord || y % cell < cord;
+                    px[y * size + x] = line ? new Color32(255, 255, 255, 255) : new Color32(255, 255, 255, 0);
+                }
+            netTexture.SetPixels32(px);
+            netTexture.Apply(true);
+            return netTexture;
+        }
+
+        /// <summary>A double-sided see-through net panel of the given size (m), as a quad in its local XY plane.</summary>
+        static Transform NetPanel(Transform parent, string name, float width, float height)
+        {
+            var m = MakeTransparent(MakeMaterial(new Color(1f, 1f, 1f, 0.95f)));
+            m.SetTexture("_BaseMap", NetTexture());
+            m.mainTextureScale = new Vector2(width / (NetCell * NetCellsPerTile), height / (NetCell * NetCellsPerTile));
+            m.SetFloat("_Cull", 0f);   // visible from inside and outside the goal
+            var q = Primitive(PrimitiveType.Quad, name, parent, m);
+            q.transform.localScale = new Vector3(width, height, 1f);
+            var r = q.GetComponent<Renderer>();
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            return q.transform;
         }
     }
 }

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 
@@ -71,9 +72,42 @@ namespace SoccerReplay
         }
         static readonly int MirrorId = Animator.StringToHash("Mirror");
 
+        // ---- Dressed characters (textured humans with separate shirt / shorts / socks meshes) ----
+        // The kit pieces are tinted from the team materials: shirt and socks in the kit color, shorts in the
+        // contrast (trim) color; skin, hair and boots keep their textures. Each piece has a solid and a
+        // see-through version, chosen from the team material's alpha (the same signal the Y Bot look uses).
+        enum Tint { None, Kit, Trim }
+        class Part { public Renderer renderer; public Material solid, ghost; public Tint tint; }
+        List<Part> parts;
+        Material lookBody, lookTrim;
+
+        static Tint TintFor(string meshName)
+        {
+            string n = meshName.ToLowerInvariant();
+            if (n.Contains("shirt") || n.Contains("sock")) return Tint.Kit;
+            if (n.Contains("short")) return Tint.Trim;
+            return Tint.None;
+        }
+
+        void ApplyDressedLook()
+        {
+            if (parts == null || lookBody == null) return;
+            float a = lookBody.color.a;
+            bool ghost = a < 0.99f;
+            foreach (var p in parts)
+            {
+                var m = ghost ? p.ghost : p.solid;
+                Color c = p.tint == Tint.Kit ? lookBody.color : p.tint == Tint.Trim && lookTrim != null ? lookTrim.color : Color.white;
+                c.a = ghost ? a : 1f;
+                if (m.color != c) m.color = c;
+                if (p.renderer.sharedMaterial != m) p.renderer.sharedMaterial = m;
+            }
+        }
+
         /// <summary>Swap materials (e.g. solid when tracked, see-through when estimated). Null shorts keeps the shared solid one.</summary>
         public void SetLook(Material body, Material trim, Material shorts = null)
         {
+            if (parts != null) { lookBody = body; lookTrim = trim; ApplyDressedLook(); return; }
             if (bodyRenderer.sharedMaterial != body) bodyRenderer.sharedMaterial = body;
             if (stripeRenderer != null && stripeRenderer.sharedMaterial != trim) stripeRenderer.sharedMaterial = trim;
             if (shortsRenderer == null) return;
@@ -108,16 +142,35 @@ namespace SoccerReplay
             {
                 var inst = Object.Instantiate(model, b.lean, false);
                 inst.name = "Model";
-                SkinnedMeshRenderer surface = null, joints = null;
-                foreach (var smr in inst.GetComponentsInChildren<SkinnedMeshRenderer>())
+                var renderers = inst.GetComponentsInChildren<SkinnedMeshRenderer>();
+                bool dressed = System.Array.Exists(renderers, r => r.name.ToLowerInvariant().Contains("shirt"));
+                if (dressed)
                 {
-                    if (smr.name.ToLowerInvariant().Contains("joint")) joints = smr; else if (surface == null) surface = smr;
+                    // Textured human: keep its materials, tint the kit pieces per team
+                    b.parts = new List<Part>();
+                    foreach (var smr in renderers)
+                    {
+                        var solid = new Material(smr.sharedMaterial);
+                        var ghost = PitchBuilder.MakeTransparent(new Material(smr.sharedMaterial));
+                        b.parts.Add(new Part { renderer = smr, solid = solid, ghost = ghost, tint = TintFor(smr.name) });
+                    }
+                    b.lookBody = bodyMat; b.lookTrim = trimMat;
+                    b.ApplyDressedLook();
                 }
-                if (surface == null) surface = joints;
-                b.bodyRenderer = surface;
-                b.stripeRenderer = joints != null && joints != surface ? joints : null;
-                if (b.bodyRenderer != null) b.bodyRenderer.sharedMaterial = bodyMat;
-                if (b.stripeRenderer != null) b.stripeRenderer.sharedMaterial = trimMat;
+                else
+                {
+                    // Mannequin (Y Bot): body in the kit color, joints in the contrast color
+                    SkinnedMeshRenderer surface = null, joints = null;
+                    foreach (var smr in renderers)
+                    {
+                        if (smr.name.ToLowerInvariant().Contains("joint")) joints = smr; else if (surface == null) surface = smr;
+                    }
+                    if (surface == null) surface = joints;
+                    b.bodyRenderer = surface;
+                    b.stripeRenderer = joints != null && joints != surface ? joints : null;
+                    if (b.bodyRenderer != null) b.bodyRenderer.sharedMaterial = bodyMat;
+                    if (b.stripeRenderer != null) b.stripeRenderer.sharedMaterial = trimMat;
+                }
 
                 b.animator = inst.GetComponent<Animator>();
                 if (b.animator == null) b.animator = inst.AddComponent<Animator>();
@@ -174,6 +227,7 @@ namespace SoccerReplay
         public void UpdateMotion(Vector2 pos, Vector2 vel, Vector2 lookAt, float fade, float dt, bool snap, BodyMotionSettings s,
                                  Vector2? forceFace = null)
         {
+            ApplyDressedLook();   // follows fades done by editing the team material directly (keepers)
             root.localPosition = new Vector3(pos.x, 0f, pos.y);
             root.localScale = Vector3.one * Mathf.Max(0.001f, fade);
 

@@ -211,6 +211,86 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &165759625
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 165759628}
+  - component: {fileID: 165759627}
+  - component: {fileID: 165759626}
+  m_Layer: 0
+  m_Name: StatsUI
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &165759626
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 165759625}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 386f4c3cb1f6e3b49984931021a5598a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PitchOverlay.StatsPanel
+  teamAName: Team A
+  teamBName: Team B
+  teamAShort: 
+  teamBShort: 
+  teamAColor: {r: 0.95, g: 0.95, b: 0.95, a: 1}
+  teamBColor: {r: 0.42, g: 0.44, b: 0.5, a: 1}
+  margin: 12
+  barHeight: 46
+  panelWidth: 300
+  panelOpenAtStart: 0
+  showEventTicker: 0
+  refreshHz: 10
+--- !u!114 &165759627
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 165759625}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 19102, guid: 0000000000000000e000000000000000, type: 0}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.dll::UnityEngine.UIElements.UIDocument
+  m_PanelSettings: {fileID: 11400000, guid: 43e67d8d01281794e83ec11954dbd8d0, type: 2}
+  m_ParentUI: {fileID: 0}
+  sourceAsset: {fileID: 0}
+  m_SortingOrder: 0
+  m_Position: 0
+  m_WorldSpaceSizeMode: 1
+  m_WorldSpaceWidth: 1920
+  m_WorldSpaceHeight: 1080
+  m_PivotReferenceSize: 0
+  m_Pivot: 0
+  m_WorldSpaceCollider: {fileID: 0}
+--- !u!4 &165759628
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 165759625}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 301910792}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &299367092
 GameObject:
   m_ObjectHideFlags: 0
@@ -338,6 +418,145 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 50, y: -30, z: 0}
+--- !u!1 &301910791
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 301910792}
+  m_Layer: 0
+  m_Name: Stats Overlay
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &301910792
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 301910791}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 165759628}
+  - {fileID: 688792801}
+  - {fileID: 675497993}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &675497992
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 675497993}
+  - component: {fileID: 675497994}
+  m_Layer: 0
+  m_Name: MatchOverlay
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &675497993
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 675497992}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 301910792}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &675497994
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 675497992}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b9a8b9886de35bf44ad4bdf1d2defa3b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PitchOverlay.MatchOverlay
+  matchJson: {fileID: 0}
+  shapeAnalysisJson: {fileID: 0}
+  panel: {fileID: 165759626}
+  links: {fileID: 688792800}
+  renderDelay: 0
+--- !u!1 &688792799
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 688792801}
+  - component: {fileID: 688792800}
+  m_Layer: 0
+  m_Name: FormationLinks
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &688792800
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 688792799}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c958b2ae80988e44d84f733794777b74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PitchOverlay.FormationLinkRenderer
+  linkColor: {r: 1, g: 0.24, b: 0.55, a: 1}
+  maxOpacity: 0.85
+  baseWidth: 0.35
+  widthPerPass: 0.15
+  maxWidth: 0.9
+  groundY: 0.06
+  linkMaterial: {fileID: 0}
+  rebuildInterval: 0.2
+  fadeSpeed: 5
+  passWindowSeconds: 45
+  maxLateral: 24
+  maxDepthDifference: 10
+--- !u!4 &688792801
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 688792799}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 301910792}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1939742394
 GameObject:
   m_ObjectHideFlags: 0
@@ -467,11 +686,12 @@ MonoBehaviour:
   dropImplausibleEvents: 1
   lobGravityCap: 2
   useFittedFlights: 1
-  homeColor: {r: 0.85, g: 0.15, b: 0.15, a: 1}
-  awayColor: {r: 0.15, g: 0.35, b: 0.9, a: 1}
+  homeColor: {r: 0.95, g: 0.95, b: 0.95, a: 1}
+  awayColor: {r: 0.06, g: 0.06, b: 0.07, a: 1}
+  refereeColor: {r: 1, g: 0.85, b: 0.1, a: 1}
   homeKeeperColor: {r: 1, g: 0.85, b: 0.1, a: 1}
   awayKeeperColor: {r: 0.95, g: 0.3, b: 0.85, a: 1}
-  useKitColors: 1
+  useKitColors: 0
   estimateOffscreenPlayers: 1
   stitchMaxGap: 8
   stitchRunSpeed: 7
@@ -483,7 +703,7 @@ MonoBehaviour:
   ghostBlendTime: 1
   ghostAlpha: 0.4
   useAnimatedPlayers: 1
-  playerModel: {fileID: 919132149155446097, guid: a1b82db4e8f988d40a244aaf4c1a98ce, type: 3}
+  playerModel: {fileID: 919132149155446097, guid: 66ae1dbbe8095294f8c09b8d96db79cb, type: 3}
   playerAnimator: {fileID: 9100000, guid: 91e323bbac3826b4bbb470b0442d87fc, type: 2}
   keeperAnimator: {fileID: 22100000, guid: 185cf762eb8c639448a04b50228f72be, type: 2}
   playActions: 1
@@ -626,6 +846,7 @@ MonoBehaviour:
   loop: 1
   cameraMode: 0
   ballDiameter: 0.4
+  matchOverlay: {fileID: 675497994}
 --- !u!4 &1939742397
 Transform:
   m_ObjectHideFlags: 0
@@ -648,3 +869,4 @@ SceneRoots:
   - {fileID: 69672483}
   - {fileID: 299367095}
   - {fileID: 1939742397}
+  - {fileID: 301910792}
