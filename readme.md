@@ -216,4 +216,3 @@ ones also have `fit_px` (how far the arc is from the detections, in pixels) and 
 * Ariyan Nagratha — 3d Unity game replay and interpolation
 * Zain Gareau — Player animation and smoothing
 * Gambol Guignard — Advanced game analytics
-a
