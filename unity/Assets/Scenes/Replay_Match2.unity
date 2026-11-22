@@ -451,6 +451,7 @@ MonoBehaviour:
   freeMoveSpeed: 12
   freeLookSensitivity: 0.15
   matchFile: matches/match_events_v6.json
+  loadMatchOnStart: 0
   origin: 0
   flipY: 1
   minTrackSamples: 8
