@@ -18,6 +18,7 @@ namespace PitchOverlay
         public float t;                    // seconds since clip start
         public float[] ball;               // [x, y, height]  (metres, pitch centre = 0,0)
         public int? owner;                 // player id the CV system thinks has the ball (often null)
+        public float[][] view_polygon;     // [REPLAY] what the camera shows: [[x, y], ...] (metres, centre = 0,0); used by LiveShapes
         public List<PlayerSample> players = new List<PlayerSample>();
     }
 
