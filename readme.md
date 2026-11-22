@@ -5,7 +5,7 @@
 
 ## Demo
 
-![Demo](demo.gif)
+![Demo](assets/demo_2d.gif)
 
 ---
 
@@ -63,7 +63,7 @@ Which for me yielded best performance on MacOS (M4). This could very well differ
 
 ## Data pipeline
 
-![Flow](footprint_pipeline.svg)
+![Flow](assets/pipeline.svg)
 
 ---
 

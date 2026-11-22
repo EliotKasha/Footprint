@@ -28,7 +28,7 @@ runs/
 *.mov
 *.avi
 *.mkv
-!demo.gif
+!assets/demo_2d.gif
 
 .env
 .env.*
