@@ -5,7 +5,7 @@
 
 ## Demo
 
-![Demo](demo.gif "Alt")
+![Demo](demo.gif)
 
 ---
 
@@ -58,6 +58,12 @@ Which for me yielded best performance on MacOS (M4). This could very well differ
 * **NumPy / SciPy:** Least-squares fits (line refinement, 3D ball flights), Hungarian matching (track stitching), smoothing.
 * **Scikit-learn:** KMeans for team split by jersey color.
 * **PyTorch:** MPS ("GPU") binding for MacOS. Alternate binding needed for equivalent performance on other OS.
+
+---
+
+## Data pipeline
+
+![Flow](footprint_pipeline.svg)
 
 ---
 

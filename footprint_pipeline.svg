@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2010" height="940" viewBox="0 0 2010 940" font-family="Inter, sans-serif">
+<defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M1 1L8 5L1 9" fill="none" stroke="#5F5E5A" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect width="2010" height="940" fill="#FFFFFF"/>
+<text x="40" y="58" font-size="30" font-weight="600" fill="#2C2C2A">FootPrint: data flow</text>
+<text x="40" y="90" font-size="17" fill="#5F5E5A">Broadcast footage → pitch coordinates, ball height, events → replays and analysis</text>
+<rect x="40" y="375" width="180" height="90" rx="12" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1.5"/>
+<text x="130.0" y="408.0" font-size="19" font-weight="600" fill="#2C2C2A" text-anchor="middle" dominant-baseline="central">Broadcast video</text>
+<text x="130.0" y="432.0" font-size="15" fill="#5F5E5A" text-anchor="middle" dominant-baseline="central">mp4, 1080p</text>
+<path d="M220 420 L262 420" fill="none" stroke="#5F5E5A" stroke-width="2" marker-end="url(#a)"/>
+<rect x="270" y="190" width="330" height="460" rx="20" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.5"/>
+<text x="435.0" y="224" font-size="20" font-weight="600" fill="#3C3489" text-anchor="middle" dominant-baseline="central">Stage 1: track_match.py</text>
+<text x="435.0" y="250" font-size="15" fill="#534AB7" text-anchor="middle" dominant-baseline="central">YOLO models + video</text>
+<rect x="295" y="280" width="280" height="120" rx="12" fill="#FFFFFF" stroke="#534AB7" stroke-width="1.5"/>
+<text x="435.0" y="304.0" font-size="19" font-weight="600" fill="#3C3489" text-anchor="middle" dominant-baseline="central">Per-frame loop</text>
+<text x="435.0" y="328.0" font-size="15" fill="#534AB7" text-anchor="middle" dominant-baseline="central">Detect players &amp; ball</text>
+<text x="435.0" y="352.0" font-size="15" fill="#534AB7" text-anchor="middle" dominant-baseline="central">Calibrate camera</text>
+<text x="435.0" y="376.0" font-size="15" fill="#534AB7" text-anchor="middle" dominant-baseline="central">Track people</text>
+<path d="M435 400 L435 466" fill="none" stroke="#5F5E5A" stroke-width="2" marker-end="url(#a)"/>
+<rect x="295" y="474" width="280" height="120" rx="12" fill="#FFFFFF" stroke="#534AB7" stroke-width="1.5"/>
+<text x="435.0" y="498.0" font-size="19" font-weight="600" fill="#3C3489" text-anchor="middle" dominant-baseline="central">Offline cleanup</text>
+<text x="435.0" y="522.0" font-size="15" fill="#534AB7" text-anchor="middle" dominant-baseline="central">Split &amp; stitch tracks</text>
+<text x="435.0" y="546.0" font-size="15" fill="#534AB7" text-anchor="middle" dominant-baseline="central">Smooth, cap speed</text>
+<text x="435.0" y="570.0" font-size="15" fill="#534AB7" text-anchor="middle" dominant-baseline="central">Teams &amp; roles</text>
+<path d="M600 420 L642 420" fill="none" stroke="#5F5E5A" stroke-width="2" marker-end="url(#a)"/>
+<rect x="650" y="375" width="190" height="90" rx="12" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1.5"/>
+<text x="745.0" y="408.0" font-size="19" font-weight="600" fill="#2C2C2A" text-anchor="middle" dominant-baseline="central">match.json</text>
+<text x="745.0" y="432.0" font-size="15" fill="#5F5E5A" text-anchor="middle" dominant-baseline="central">players, ball (2D)</text>
+<path d="M840 420 L882 420" fill="none" stroke="#5F5E5A" stroke-width="2" marker-end="url(#a)"/>
+<rect x="890" y="160" width="330" height="500" rx="20" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.5"/>
+<text x="1055.0" y="194" font-size="20" font-weight="600" fill="#085041" text-anchor="middle" dominant-baseline="central">Stage 2: match_events.py</text>
+<text x="1055.0" y="220" font-size="15" fill="#0F6E56" text-anchor="middle" dominant-baseline="central">JSON only, no video</text>
+<rect x="915" y="250" width="280" height="110" rx="12" fill="#FFFFFF" stroke="#0F6E56" stroke-width="1.5"/>
+<text x="1055.0" y="281.0" font-size="19" font-weight="600" fill="#085041" text-anchor="middle" dominant-baseline="central">Possession</text>
+<text x="1055.0" y="305.0" font-size="15" fill="#0F6E56" text-anchor="middle" dominant-baseline="central">Who has the ball</text>
+<text x="1055.0" y="329.0" font-size="15" fill="#0F6E56" text-anchor="middle" dominant-baseline="central">Spells, touches</text>
+<path d="M1055 360 L1055 386" fill="none" stroke="#5F5E5A" stroke-width="2" marker-end="url(#a)"/>
+<rect x="915" y="394" width="280" height="110" rx="12" fill="#FFFFFF" stroke="#0F6E56" stroke-width="1.5"/>
+<text x="1055.0" y="425.0" font-size="19" font-weight="600" fill="#085041" text-anchor="middle" dominant-baseline="central">Ball in 3D</text>
+<text x="1055.0" y="449.0" font-size="15" fill="#0F6E56" text-anchor="middle" dominant-baseline="central">Gravity-arc flights</text>
+<text x="1055.0" y="473.0" font-size="15" fill="#0F6E56" text-anchor="middle" dominant-baseline="central">Height from geometry</text>
+<path d="M1055 504 L1055 530" fill="none" stroke="#5F5E5A" stroke-width="2" marker-end="url(#a)"/>
+<rect x="915" y="538" width="280" height="110" rx="12" fill="#FFFFFF" stroke="#0F6E56" stroke-width="1.5"/>
+<text x="1055.0" y="569.0" font-size="19" font-weight="600" fill="#085041" text-anchor="middle" dominant-baseline="central">Events &amp; stats</text>
+<text x="1055.0" y="593.0" font-size="15" fill="#0F6E56" text-anchor="middle" dominant-baseline="central">Passes, aerial balls</text>
+<text x="1055.0" y="617.0" font-size="15" fill="#0F6E56" text-anchor="middle" dominant-baseline="central">Team &amp; player stats</text>
+<path d="M1220 420 L1262 420" fill="none" stroke="#5F5E5A" stroke-width="2" marker-end="url(#a)"/>
+<rect x="1270" y="370" width="230" height="100" rx="12" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1.5"/>
+<text x="1385.0" y="408.0" font-size="19" font-weight="600" fill="#2C2C2A" text-anchor="middle" dominant-baseline="central">match_events.json</text>
+<text x="1385.0" y="432.0" font-size="15" fill="#5F5E5A" text-anchor="middle" dominant-baseline="central">+ ball height, events</text>
+<rect x="1600" y="110" width="370" height="450" rx="20" fill="#FAECE7" stroke="#993C1D" stroke-width="1.5"/>
+<text x="1785.0" y="144" font-size="20" font-weight="600" fill="#712B13" text-anchor="middle" dominant-baseline="central">Unity 3D replay</text>
+<text x="1785.0" y="170" font-size="15" fill="#993C1D" text-anchor="middle" dominant-baseline="central">unity/ (C#, Unity 6)</text>
+<rect x="1625" y="200" width="320" height="92" rx="12" fill="#FFFFFF" stroke="#993C1D" stroke-width="1.5"/>
+<text x="1785.0" y="222.0" font-size="19" font-weight="600" fill="#712B13" text-anchor="middle" dominant-baseline="central">Load &amp; clean data</text>
+<text x="1785.0" y="246.0" font-size="15" fill="#993C1D" text-anchor="middle" dominant-baseline="central">Glitches, ID swaps, ball</text>
+<text x="1785.0" y="270.0" font-size="15" fill="#993C1D" text-anchor="middle" dominant-baseline="central">Off-camera players</text>
+<path d="M1785.0 292 L1785.0 318" fill="none" stroke="#5F5E5A" stroke-width="2" marker-end="url(#a)"/>
+<rect x="1625" y="326" width="320" height="92" rx="12" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.5"/>
+<text x="1785.0" y="348.0" font-size="19" font-weight="600" fill="#3C3489" text-anchor="middle" dominant-baseline="central">Animation from events</text>
+<text x="1785.0" y="372.0" font-size="15" fill="#534AB7" text-anchor="middle" dominant-baseline="central">Locomotion blend tree</text>
+<text x="1785.0" y="396.0" font-size="15" fill="#534AB7" text-anchor="middle" dominant-baseline="central">Kicks, receives, headers</text>
+<path d="M1785.0 418 L1785.0 444" fill="none" stroke="#5F5E5A" stroke-width="2" marker-end="url(#a)"/>
+<rect x="1625" y="452" width="320" height="88" rx="12" fill="#FFFFFF" stroke="#993C1D" stroke-width="1.5"/>
+<text x="1785.0" y="484.0" font-size="19" font-weight="600" fill="#712B13" text-anchor="middle" dominant-baseline="central">3D replay</text>
+<text x="1785.0" y="508.0" font-size="15" fill="#993C1D" text-anchor="middle" dominant-baseline="central">Stadium, cameras, ball arcs</text>
+<path d="M1500 420 L1550 420" fill="none" stroke="#5F5E5A" stroke-width="2"/>
+<path d="M1550 246 L1550 815" fill="none" stroke="#5F5E5A" stroke-width="2"/>
+<path d="M1550 246 L1617 246" fill="none" stroke="#5F5E5A" stroke-width="2" marker-end="url(#a)"/>
+<path d="M1550 680 L1592 680" fill="none" stroke="#5F5E5A" stroke-width="2" marker-end="url(#a)"/>
+<path d="M1550 815 L1592 815" fill="none" stroke="#5F5E5A" stroke-width="2" marker-end="url(#a)"/>
+<rect x="1600" y="632" width="370" height="96" rx="12" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.5"/>
+<text x="1785.0" y="656.0" font-size="19" font-weight="600" fill="#085041" text-anchor="middle" dominant-baseline="central">Formation &amp; ratings</text>
+<text x="1785.0" y="680.0" font-size="15" fill="#0F6E56" text-anchor="middle" dominant-baseline="central">Shape (e.g. 4-3-3), player ratings</text>
+<text x="1785.0" y="704.0" font-size="15" fill="#0F6E56" text-anchor="middle" dominant-baseline="central">+ other analysis</text>
+<path d="M1785.0 632 L1785.0 568" fill="none" stroke="#0F6E56" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#a)"/>
+<text x="1797.0" y="598" font-size="14" fill="#0F6E56" dominant-baseline="central">side panel (planned)</text>
+<rect x="1600" y="770" width="370" height="90" rx="12" fill="#FAECE7" stroke="#993C1D" stroke-width="1.5"/>
+<text x="1785.0" y="803.0" font-size="19" font-weight="600" fill="#712B13" text-anchor="middle" dominant-baseline="central">Python 2D replay</text>
+<text x="1785.0" y="827.0" font-size="15" fill="#993C1D" text-anchor="middle" dominant-baseline="central">Side-by-side with video (viz_match.py)</text>
+<rect x="40" y="893" width="24" height="24" rx="5" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.5"/>
+<text x="76" y="905" font-size="16" fill="#444441" dominant-baseline="central">Tracking &amp; animation</text>
+<rect x="370" y="893" width="24" height="24" rx="5" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.5"/>
+<text x="406" y="905" font-size="16" fill="#444441" dominant-baseline="central">Events &amp; analysis</text>
+<rect x="700" y="893" width="24" height="24" rx="5" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1.5"/>
+<text x="736" y="905" font-size="16" fill="#444441" dominant-baseline="central">Inputs &amp; data files</text>
+<rect x="1030" y="893" width="24" height="24" rx="5" fill="#FAECE7" stroke="#993C1D" stroke-width="1.5"/>
+<text x="1066" y="905" font-size="16" fill="#444441" dominant-baseline="central">Replays</text>
+<path d="M1360 905 L1400 905" fill="none" stroke="#0F6E56" stroke-width="2" stroke-dasharray="6 5"/>
+<text x="1412" y="905" font-size="16" fill="#444441" dominant-baseline="central">Planned</text>
+</svg>
