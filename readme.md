@@ -1,7 +1,5 @@
 # FootPrint - Football Optical Observation and Position Reconstruction Intelligence Network
-FootPrint takes a broadcast match video and outputs, for every frame, where every player and the ball is
-on the pitch in metres. It also outputs possession, passes, ball height and match stats. A Unity
-app reads that JSON and replays the match in 3D.
+*FootPrint* takes a video of a soccer match and outputs (for every frame) where every player and the ball is located on the pitch in meters. It also tracks possession, passes, ball height and other match stats. A Unity project reads in that JSON and creates a fully animated replay of the match in 3D, like a Video Game recreation.
 
 ---
 
