@@ -317,6 +317,39 @@ namespace SoccerReplay
             Screen.SetResolution(r.width, r.height, FullScreenMode.FullScreenWindow);
         }
 
+        // Test hook for checking the built app without touching the screen:
+        //   CodeJamProject.exe -replayMatch "C:\...\match_events_v5.json" -replayShot "C:\...\shot"
+        // loads the match, saves shot_goal.png (behind the goal) and shot_broadcast.png, then quits.
+        static bool commandLineRead;
+        static string shotPath;
+
+        static void ReadCommandLine()
+        {
+            if (commandLineRead) return;
+            commandLineRead = true;
+            var args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                if (args[i] == "-replayMatch" && File.Exists(args[i + 1])) { pickedMatchPath = args[i + 1]; pickedMatchNote = "command line"; }
+                if (args[i] == "-replayShot") shotPath = args[i + 1];
+            }
+        }
+
+        System.Collections.IEnumerator TakeShotsAndQuit()
+        {
+            string basePath = shotPath; shotPath = null;
+            Seek(data.startTime + Mathf.Min(18f, data.Duration * 0.5f));
+            cameraMode = CameraMode.BehindGoalLeft; SnapCamera();
+            yield return new WaitForSecondsRealtime(4f);
+            ScreenCapture.CaptureScreenshot(basePath + "_goal.png");
+            yield return new WaitForSecondsRealtime(1.5f);
+            cameraMode = CameraMode.Broadcast; SnapCamera();
+            yield return new WaitForSecondsRealtime(3f);
+            ScreenCapture.CaptureScreenshot(basePath + "_broadcast.png");
+            yield return new WaitForSecondsRealtime(1.5f);
+            Application.Quit();
+        }
+
         static void HandleFullscreenKey()
         {
             var kb = Keyboard.current;
@@ -371,6 +404,7 @@ namespace SoccerReplay
         {
             cam = Camera.main;
             EnsureFullscreenOnLaunch();
+            ReadCommandLine();
             Application.runInBackground = true; // keep playing when the window loses focus
             SetOverlayVisible(false);   // the stats overlay appears once a match is loaded
             if (pickedMatchPath == null && (!loadMatchOnStart || string.IsNullOrEmpty(matchFile)))
@@ -425,6 +459,7 @@ namespace SoccerReplay
             BuildActionSchedule();
             time = data.startTime;
             if (cam != null) SnapCamera();
+            if (shotPath != null && cam != null) StartCoroutine(TakeShotsAndQuit());
         }
 
         /// <summary>No match yet: show the pitch and stadium from the broadcast gantry, and the Load match prompt.</summary>

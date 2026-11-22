@@ -30,6 +30,11 @@ namespace SoccerReplay
             m.SetFloat("_SrcBlendAlpha", (float)UnityEngine.Rendering.BlendMode.One);
             m.SetFloat("_DstBlendAlpha", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
             m.SetFloat("_ZWrite", 0f);
+            // Plain alpha blending without URP's "preserve specular" (premultiply) option. Must match what Unity
+            // writes into saved materials, or the build keeps a different shader variant and falls back to the
+            // opaque one (the .exe drew see-through things - goal nets, estimated players - as solid surfaces).
+            m.SetFloat("_BlendModePreserveSpecular", 0f);
+            m.DisableKeyword("_ALPHAPREMULTIPLY_ON");
             m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             m.SetOverrideTag("RenderType", "Transparent");
             m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
