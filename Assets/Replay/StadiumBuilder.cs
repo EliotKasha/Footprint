@@ -745,6 +745,9 @@ namespace SoccerReplay
 
         // ---------------- Lighting & atmosphere ----------------
 
+        [Tooltip("How dark shadows are (0 = none, 1 = full). The stand's shadow across the pitch uses this")]
+        [Range(0f, 1f)] public float shadowStrength = 0.4f;
+
         void SetupAtmosphere(Camera cam)
         {
             var sun = RenderSettings.sun != null ? RenderSettings.sun : FindAnyObjectByType<Light>();
@@ -754,7 +757,7 @@ namespace SoccerReplay
                 sun.intensity = 1.5f;
                 sun.color = new Color(1f, 0.95f, 0.86f);
                 sun.shadows = LightShadows.Soft;
-                sun.shadowStrength = 0.8f;
+                sun.shadowStrength = shadowStrength;
             }
 
             if (GraphicsSettings.currentRenderPipeline is UniversalRenderPipelineAsset urp)

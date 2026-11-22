@@ -14,7 +14,9 @@ namespace SoccerReplay
         [Tooltip("Speeds above this (m/s) are treated as tracking glitches")]
         public float maxSpeed = 11f;
         [Tooltip("Below this speed (m/s) players face the ball instead of their direction of travel")]
-        public float faceMoveAbove = 1.2f;
+        public float faceMoveAbove = 3.5f;
+        [Tooltip("When running faster than faceMoveAbove, still turn this much (0-1) toward the ball, so players keep it in view")]
+        [Range(0f, 1f)] public float ballAwarenessWhileRunning = 0.25f;
         [Tooltip("How fast players can turn (degrees per second)")]
         public float turnRate = 540f;
         [Tooltip("Forward lean in degrees per m/s of speed")]
@@ -182,7 +184,18 @@ namespace SoccerReplay
 
             // Facing: forced target during actions (pass target / incoming ball); otherwise direction of
             // travel when moving, the ball when nearly still
-            Vector2 faceDir = forceFace.HasValue ? forceFace.Value - pos : speed > s.faceMoveAbove ? vel : lookAt - pos;
+            // Players watch the ball: below running speed they face it (the 8-direction blend tree then shows
+            // backpedals and sidesteps); when running they face where they're going, angled a little toward it
+            Vector2 toBall = lookAt - pos;
+            Vector2 faceDir;
+            if (forceFace.HasValue) faceDir = forceFace.Value - pos;
+            else if (speed > s.faceMoveAbove && vel.sqrMagnitude > 0.01f)
+            {
+                faceDir = vel.normalized;
+                if (toBall.sqrMagnitude > 1f && Vector2.Dot(faceDir, toBall.normalized) > -0.2f)
+                    faceDir = Vector2.Lerp(faceDir, toBall.normalized, s.ballAwarenessWhileRunning);
+            }
+            else faceDir = toBall;
             if (faceDir.sqrMagnitude > 0.01f)
             {
                 float target = Mathf.Atan2(faceDir.x, faceDir.y) * Mathf.Rad2Deg;
