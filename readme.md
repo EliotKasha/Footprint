@@ -1,7 +1,5 @@
 # FootPrint - Football Optical Observation and Position Reconstruction Intelligence Network
-FootPrint takes a broadcast match video and outputs, for every frame, where every player and the ball is
-on the pitch in metres. It also outputs possession, passes, ball height and match stats. A Unity
-app reads that JSON and replays the match in 3D.
+*FootPrint* takes a video of a soccer match and outputs (for every frame) where every player and the ball is located on the pitch in meters. It also tracks possession, passes, ball height and other match stats. A Unity project reads in that JSON and creates a fully animated replay of the match in 3D, like a Video Game recreation.
 
 ---
 
@@ -54,14 +52,12 @@ Which for me yielded best performance on MacOS (M4). This could very well differ
 
 ## Tools
 
-| | used for |
-|---|---|
-| **Ultralytics YOLO** | three models: player detector (ball / goalkeeper / player / referee), dedicated ball detector, pitch keypoint (pose) model with 32 landmarks (Roboflow sports pitch config) |
-| **supervision / trackers** | ByteTrack multi-object tracking |
-| **OpenCV** | video I/O, homographies, optical flow (camera motion), colour conversion, drawing |
-| **NumPy / SciPy** | least-squares fits (line refinement, 3D ball flights), Hungarian matching (track stitching), smoothing |
-| **scikit-learn** | KMeans for splitting players into two teams by shirt colour |
-| **PyTorch** | runs the models (MPS on Apple Silicon, CUDA, or CPU) |
+* **Ultralytics YOLO:** Player detector (ball / goalkeeper / player / referee), dedicated ball detector, pitch keypoint model w/ 32 landmarks (Roboflow sports pitch config).
+* **Supervision / trackers:** ByteTrack multi-object tracking.
+* **OpenCV:** Video I/O, homographies, optical flow (camera motion), color conversion, drawing.
+* **NumPy / SciPy:** Least-squares fits (line refinement, 3D ball flights), Hungarian matching (track stitching), smoothing.
+* **Scikit-learn:** KMeans for team split by jersey color.
+* **PyTorch:** MPS ("GPU") binding for MacOS. Alternate binding needed for equivalent performance on other OS.
 
 ---
 
@@ -191,6 +187,7 @@ across runs, though team 0/1 is.
 ### Events
 
 ```jsonc
+// Ex.
 {"type": "touch", "t": 0.967, "player": 14, "team": 1, "x": -17.67, "y": -18.38, "duration": 1.07}
 {"type": "pass", "t_start": 2.0, "t_end": 4.4, "from": 14, "to": 16, "team": 1,
  "start": [-15.7, -14.9], "end": [-1.6, -30.9], "length": 21.3, "completed": true, "aerial": true, "max_height": 0.6}
