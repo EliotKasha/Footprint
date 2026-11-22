@@ -71,6 +71,11 @@ namespace SoccerReplay
         public float Duration => t_land - t_takeoff;
         public bool Contains(float t) => t >= t_takeoff && t <= t_land && Duration > 0.01f;
 
+        // Set by MatchReplayData.PrepareFlights: shifts that join the arc's ends onto the real ball path,
+        // and the height actually drawn (capped to what gravity allows for the flight time)
+        [NonSerialized] public Vector2 startShift, landShift;
+        [NonSerialized] public float drawHeight = -1f;
+
         /// <summary>
         /// Position on the arc: straight-line ground track at constant speed, and a parabola in time
         /// for height (what gravity produces) that starts on the ground, peaks at max_height and
@@ -79,11 +84,11 @@ namespace SoccerReplay
         public void Sample(float t, out Vector2 ground, out float height)
         {
             float u = Mathf.Clamp01((t - t_takeoff) / Duration);
-            ground = Vector2.Lerp(new Vector2(start[0], start[1]), new Vector2(land[0], land[1]), u);
+            ground = Vector2.Lerp(new Vector2(start[0], start[1]) + startShift, new Vector2(land[0], land[1]) + landShift, u);
 
             // z(u) = a·u² + b·u with z(0)=0, z(1)=e and a peak of H:
             // a = e − 2H − 2·√(H·(H−e)), b = e − a   (reduces to 4H·u·(1−u) when e = 0)
-            float H = Mathf.Max(max_height, 0f);
+            float H = Mathf.Max(drawHeight >= 0f ? drawHeight : max_height, 0f);
             float e = Mathf.Clamp(end_height, 0f, H);
             float a = e - 2f * H - 2f * Mathf.Sqrt(H * (H - e));
             float b = e - a;
@@ -373,6 +378,212 @@ namespace SoccerReplay
             public bool correctCameraShifts = true; // cancel jumps where many players shift together
             public float shiftRecovery = 2f;        // seconds over which a cancelled shift eases back
             public float splitGap = 1.5f;           // seconds; longer gaps start a new track
+            public float ballMaxSpeed = 40f;        // m/s; ball movement faster than this is a false detection (hard shots ~35)
+            public float ballJumpMargin = 2f;       // m of detection slack added to the reachable distance
+            public bool fillBallFromOwner = true;   // ball missing but someone owns it -> put it at their feet
+            public bool dropImplausibleEvents = true; // passes/touches that don't match the cleaned ball path
+            public float lobGravityCap = 2f;        // arcs no higher than this × what gravity allows for their duration
+        }
+
+        public int ballOutliersRemoved, ballSamplesFilled, eventsDropped, flightsAdded, flightsCapped;
+
+        /// <summary>
+        /// Makes lobs fluid: adds arcs for aerial passes / loose balls that have no fitted flight, joins every
+        /// arc's ends onto the real ball path (no snap at takeoff or landing), and caps each arc's height at
+        /// gravityCap × what gravity allows for its flight time (g·T²/8), so lobs can't shoot up and down
+        /// unnaturally fast.
+        /// </summary>
+        void PrepareFlights(float gravityCap)
+        {
+            // Arcs for aerial events that have no fitted flight
+            foreach (var e in events)
+            {
+                bool aerialEvent = (e.type == "pass" && e.aerial) || e.type == "aerial_ball";
+                if (!aerialEvent || e.start == null || e.end == null || e.t_end - e.t_start < 0.2f || e.max_height < 0.3f) continue;
+                bool covered = flights.Exists(f => f.t_takeoff < e.t_end && e.t_start < f.t_land);
+                if (covered) continue;
+                flights.Add(new BallFlight
+                {
+                    t_takeoff = e.t_start, t_land = e.t_end, max_height = e.max_height,
+                    start = new[] { e.start[0], e.start[1] }, land = new[] { e.end[0], e.end[1] },
+                    method = "event", kind = e.type == "pass" ? "aerial pass" : "loose ball",
+                });
+                flightsAdded++;
+            }
+            flights.Sort((a, b) => a.t_takeoff.CompareTo(b.t_takeoff));
+
+            Vector2? BallNear(float t)
+            {
+                if (ball.Count == 0) return null;
+                int idx = ball.times.BinarySearch(t);
+                if (idx < 0) idx = ~idx;
+                float near = Mathf.Min(idx > 0 ? t - ball.times[idx - 1] : float.MaxValue, idx < ball.Count ? ball.times[idx] - t : float.MaxValue);
+                return near <= 0.3f ? ball.SampleClamped(t) : (Vector2?)null;
+            }
+            foreach (var f in flights)
+            {
+                // Join the arc onto where the ball really is at takeoff and landing (small shifts only)
+                var s = BallNear(f.t_takeoff - 0.02f);
+                var l = BallNear(f.t_land + 0.02f);
+                // (fits can start several metres from where the ball really was; join them fully so the ball never jumps)
+                if (s.HasValue) f.startShift = Vector2.ClampMagnitude(s.Value - new Vector2(f.start[0], f.start[1]), 12f);
+                if (l.HasValue) f.landShift = Vector2.ClampMagnitude(l.Value - new Vector2(f.land[0], f.land[1]), 12f);
+
+                float physical = 9.81f * f.Duration * f.Duration / 8f;   // peak of a ball in the air for that long
+                float cap = Mathf.Max(physical * gravityCap, f.end_height);
+                f.drawHeight = Mathf.Min(f.max_height, cap);
+                if (f.drawHeight < f.max_height - 0.05f) flightsCapped++;
+            }
+        }
+
+        /// <summary>
+        /// Removes false ball detections: splits the ball track wherever it jumps further than a ball could
+        /// travel (maxSpeed × gap + margin, so jumps across gaps count too), then keeps the chain of pieces
+        /// with the most samples in which every hand-over between pieces is physically reachable. Short
+        /// islands of detections elsewhere on the pitch (another object, a line marking) are dropped.
+        /// </summary>
+        void CleanBall(float maxSpeed, float margin)
+        {
+            var b = ball;
+            int n = b.Count;
+            if (n < 3) return;
+            bool Reachable(int i, int j) // can the ball get from sample i to sample j?
+            {
+                float dt = Mathf.Abs(b.times[j] - b.times[i]);
+                return Vector2.Distance(b.positions[i], b.positions[j]) <= maxSpeed * dt + margin;
+            }
+
+            var segs = new List<(int s, int e)>();
+            int s0 = 0;
+            for (int i = 1; i < n; i++)
+                if (!Reachable(i - 1, i)) { segs.Add((s0, i - 1)); s0 = i; }
+            segs.Add((s0, n - 1));
+
+            // Best consistent chain of pieces (dynamic programming over pieces in time order). Each piece scores
+            // its sample count; a hand-over between pieces that needs a fast ball across a gap costs points in
+            // proportion to the speed above 15 m/s, so a stray detection that would need a near-impossible dash
+            // loses to the explanation that fits (e.g. a shot continuing into the net).
+            float HandOverCost(int i, int j)
+            {
+                float dt = Mathf.Max(1f / 60f, Mathf.Abs(b.times[j] - b.times[i]));
+                float v = Mathf.Max(0f, Vector2.Distance(b.positions[i], b.positions[j]) - margin) / dt;
+                return Mathf.Max(0f, v - 25f) * 0.3f;   // shots reach ~35 m/s, so only penalise beyond pass speeds
+            }
+            int S = segs.Count;
+            var best = new float[S];
+            var prev = new int[S];
+            for (int i = 0; i < S; i++)
+            {
+                float w = segs[i].e - segs[i].s + 1;
+                best[i] = w; prev[i] = -1;
+                for (int j = 0; j < i; j++)
+                {
+                    if (!Reachable(segs[j].e, segs[i].s)) continue;
+                    float score = best[j] + w - HandOverCost(segs[j].e, segs[i].s);
+                    if (score > best[i]) { best[i] = score; prev[i] = j; }
+                }
+            }
+            int last = 0;
+            for (int i = 1; i < S; i++) if (best[i] > best[last]) last = i;
+            var keep = new bool[S];
+            for (int i = last; i >= 0; i = prev[i]) keep[i] = true;
+
+            var times = new List<float>(); var pos = new List<Vector2>(); var hts = new List<float>();
+            for (int k = 0; k < S; k++)
+            {
+                if (!keep[k]) continue;
+                for (int i = segs[k].s; i <= segs[k].e; i++)
+                {
+                    times.Add(b.times[i]); pos.Add(b.positions[i]);
+                    hts.Add(b.heights.Count == n ? b.heights[i] : 0f);
+                }
+            }
+            ballOutliersRemoved += n - times.Count;
+            b.times.Clear(); b.times.AddRange(times);
+            b.positions.Clear(); b.positions.AddRange(pos);
+            b.heights.Clear(); b.heights.AddRange(hts);
+        }
+
+        /// <summary>
+        /// Where the ball is missing but a player owns it, place it just in front of that player's feet,
+        /// provided that's reachable from the real ball samples before and after (so a wrongly assigned
+        /// owner can't drag the ball somewhere impossible).
+        /// </summary>
+        void FillBallFromOwner(float maxSpeed, float margin)
+        {
+            if (frameTimes == null || ball.Count == 0) return;
+            var addT = new List<float>(); var addP = new List<Vector2>();
+            for (int f = 0; f < frameTimes.Length; f++)
+            {
+                int owner = frameOwners[f];
+                if (owner < 0) continue;
+                float t = frameTimes[f];
+                // Real sample at (almost) this time? Then nothing to fill.
+                int idx = ball.times.BinarySearch(t);
+                if (idx < 0) idx = ~idx;
+                float before = idx > 0 ? t - ball.times[idx - 1] : float.MaxValue;
+                float after = idx < ball.Count ? ball.times[idx] - t : float.MaxValue;
+                if (Mathf.Min(before, after) < 0.05f) continue;
+
+                Track piece = null; Vector2 p = default;
+                foreach (var tr in players)
+                    if (tr.id == owner && tr.TrySample(t, 0.5f, out p)) { piece = tr; break; }
+                if (piece == null) continue;
+                var v = piece.VelocityAt(t, 0.4f);
+                Vector2 c = p + (v.sqrMagnitude > 0.25f ? v.normalized * 0.5f : Vector2.zero);
+
+                bool ok = true;
+                if (idx > 0 && Vector2.Distance(c, ball.positions[idx - 1]) > maxSpeed * before + margin) ok = false;
+                if (idx < ball.Count && Vector2.Distance(c, ball.positions[idx]) > maxSpeed * after + margin) ok = false;
+                if (!ok) continue;
+                addT.Add(t); addP.Add(c);
+            }
+            if (addT.Count == 0) return;
+
+            // Merge into the ball track in time order (filled samples sit on the ground)
+            var times = new List<float>(); var pos = new List<Vector2>(); var hts = new List<float>();
+            int a = 0, r = 0;
+            while (a < addT.Count || r < ball.Count)
+            {
+                bool takeReal = r < ball.Count && (a >= addT.Count || ball.times[r] <= addT[a]);
+                if (takeReal) { times.Add(ball.times[r]); pos.Add(ball.positions[r]); hts.Add(ball.heights.Count == ball.Count ? ball.heights[r] : 0f); r++; }
+                else { times.Add(addT[a]); pos.Add(addP[a]); hts.Add(0f); a++; }
+            }
+            ballSamplesFilled += addT.Count;
+            ball.times.Clear(); ball.times.AddRange(times);
+            ball.positions.Clear(); ball.positions.AddRange(pos);
+            ball.heights.Clear(); ball.heights.AddRange(hts);
+        }
+
+        /// <summary>
+        /// Drops passes and touches that don't fit the cleaned ball path (e.g. a "pass" to a false
+        /// detection on the far touchline), so no kick or arc is shown towards a phantom ball.
+        /// </summary>
+        void DropImplausibleEvents(float maxSpeed, float tolerance)
+        {
+            if (ball.Count == 0) return;
+            bool Fits(float t, float x, float y)
+            {
+                // Only judge where there's a real/filled ball sample close in time
+                int idx = ball.times.BinarySearch(t);
+                if (idx < 0) idx = ~idx;
+                float near = Mathf.Min(idx > 0 ? t - ball.times[idx - 1] : float.MaxValue, idx < ball.Count ? ball.times[idx] - t : float.MaxValue);
+                if (near > 0.5f) return true;
+                return Vector2.Distance(ball.SampleClamped(t), new Vector2(x, y)) <= tolerance;
+            }
+            int before = events.Count;
+            events.RemoveAll(e =>
+            {
+                if (e.type == "pass" && e.start != null && e.end != null)
+                {
+                    float dur = Mathf.Max(0.05f, e.t_end - e.t_start);
+                    float dist = Vector2.Distance(new Vector2(e.start[0], e.start[1]), new Vector2(e.end[0], e.end[1]));
+                    return dist / dur > maxSpeed * 1.2f || !Fits(e.t_start, e.start[0], e.start[1]) || !Fits(e.t_end, e.end[0], e.end[1]);
+                }
+                if (e.type == "touch") return !Fits(e.t, e.x, e.y);
+                return false;
+            });
+            eventsDropped += before - events.Count;
         }
 
         public static MatchReplayData FromJson(string json, OriginMode origin, bool flipY, int minTrackSamples, int smoothRadius, CleanOptions clean = null)
@@ -572,7 +783,12 @@ namespace SoccerReplay
                 }
             }
             data.spikesRemoved += data.ball.RemoveSpikes(40f); // the ball can genuinely move fast
+            // False detections elsewhere on the pitch, then fill gaps from the player on the ball
+            data.CleanBall(clean.ballMaxSpeed, clean.ballJumpMargin);
+            if (clean.fillBallFromOwner) data.FillBallFromOwner(clean.ballMaxSpeed, clean.ballJumpMargin);
+            if (clean.dropImplausibleEvents) data.DropImplausibleEvents(clean.ballMaxSpeed, 8f);
             data.ball.SmoothByTime(Mathf.Min(0.1f, clean.smoothWindow));
+            data.PrepareFlights(clean.lobGravityCap);
             return data;
         }
     }

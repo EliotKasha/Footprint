@@ -435,6 +435,7 @@ MonoBehaviour:
   rotateAds: 1
   adRotateSeconds: 6
   adFlipSeconds: 0.4
+  shadowStrength: 0.4
 --- !u!114 &1939742396
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -447,6 +448,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 76dadecb6255c2e47b33c9cb6ea5560b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SoccerReplay.ReplayController
+  freeMoveSpeed: 12
+  freeLookSensitivity: 0.15
   matchFile: matches/match_events_v5.json
   origin: 0
   flipY: 1
@@ -457,7 +460,11 @@ MonoBehaviour:
   correctCameraShifts: 1
   fadeTime: 0.25
   playerMaxGap: 1
-  ballMaxGap: 1
+  ballMaxGap: 5
+  ballMaxSpeed: 40
+  fillBallFromOwner: 1
+  dropImplausibleEvents: 1
+  lobGravityCap: 2
   useFittedFlights: 1
   homeColor: {r: 0.85, g: 0.15, b: 0.15, a: 1}
   awayColor: {r: 0.15, g: 0.35, b: 0.9, a: 1}
@@ -590,7 +597,8 @@ MonoBehaviour:
     velocityWindow: 0.3
     speedSmooth: 0.15
     maxSpeed: 11
-    faceMoveAbove: 1.2
+    faceMoveAbove: 3.5
+    ballAwarenessWhileRunning: 0.25
     turnRate: 540
     leanPerMs: 1.6
     maxLean: 13
@@ -611,9 +619,12 @@ MonoBehaviour:
   keeperMaxDepth: 12
   keeperMaxDistanceFromGoal: 25
   showLabels: 1
+  cameraFocusSmoothing: 0.6
+  cameraFocusMaxSpeed: 18
   speed: 1
   loop: 1
   cameraMode: 0
+  ballDiameter: 0.4
 --- !u!4 &1939742397
 Transform:
   m_ObjectHideFlags: 0

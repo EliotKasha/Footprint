@@ -8,7 +8,9 @@ The CV pipeline outputs `match_events.json` (players, ball, possession, passes a
 2. Open `Assets/Scenes/Replay.unity`.
 3. Press **Play**. (Or use the menu **Soccer Replay → Create Replay Scene and Play** to rebuild the scene.)
 
-**Controls:** Space play/pause · ←/→ skip 1 s · `[` `]` speed (0.25×–4×) · `1` `2` `3` broadcast / top-down / follow-ball camera · `R` restart.
+**Controls:** Space play/pause · ←/→ skip 1 s · `[` `]` speed (0.25×–4×) · `1` `2` `3` broadcast / top-down / follow-ball camera · `4` free camera · `R` restart.
+
+**Free camera** (`4` or the **Free** button): hold the right mouse button and move the mouse to look, WASD to fly, E/Q up/down, Shift for 3× speed, mouse wheel to change fly speed (shown in the bottom bar). Works while paused.
 The bar at the bottom has the same controls plus a timeline slider. The top-left panel is a live event feed.
 
 **Loading a new CV output:** copy the JSON into `Assets/StreamingAssets/matches/`, select the `Replay` object and set **Match File**.
@@ -51,12 +53,16 @@ Broadcast footage only shows part of the pitch, so players drop in and out of th
 - Tunable under **Actions** on the `Replay` object (blend times, running-kick speed, long-pass length, header height, contact alignment, mirroring).
 
 ### Players' body motion
-- Velocity is measured over a window centered on the current moment, then smoothed. Players face their direction of travel when moving and turn to the ball when standing.
+- Velocity is measured over a window centered on the current moment, then smoothed.
+- **Players watch the ball:** below 3.5 m/s they face it (the 8-direction jogs show backpedals and sidesteps); when running they face where they're going, turned about 25% toward the ball. On clip 1, 95% of players face within 60° of the ball.
+- **Goalkeepers always face the ball** (shuffling and backpedaling rather than turning away), except during their own catches and kicks.
 - Capsule bodies (fallback) have a chest stripe and shorts band, and lean and bob with speed. Animated players get a lighter lean on top of their clips. All of this follows pause, scrubbing and playback speed.
 
 ### Ball and events
-- Ball with height and a ground shadow, and a **possession ring** under the player on the ball (`owner`).
+- Ball (0.4 m across, adjustable as **Ball Diameter**) with height and a ground shadow, and a **possession ring** under the player on the ball (`owner`).
 - **Fitted ball flights** (`ball_flights`): during a flight the ball follows the smooth arc (a straight ground track plus a parabola for height) instead of noisy per-frame points, so high balls never jitter. It starts on the grass and ends at `end_height`: 0 for a landing, above 0 for a header or volley.
+- **Ball cleanup (no teleporting):** false ball detections are removed by keeping the longest chain of positions a real ball could travel between (up to 40 m/s across gaps). Gaps are filled from the player on the ball when that fits, "passes" that only existed because of a false detection are dropped, the ball stays visible through gaps of up to 5 s, and it rests in the net after a goal. Clip 2 had jumps of up to 95 m; now neither clip has any movement over 40 m/s.
+- **Smoother lobs:** each arc is joined onto the real ball path at takeoff and landing (no snap), aerial passes without a fitted flight get an arc, and arc height is capped at twice what gravity allows for the flight time.
 - **Pass arcs:** white = completed, red = failed, amber = loose lofted ball (`aerial_ball`).
 - **Event feed** of passes, touches and balls in the air.
 
@@ -72,7 +78,8 @@ The CV output still has errors, so the loader fixes them before playback:
 - About 13k instanced crowd figures in team colors with an away section, and a gentle bob.
 - **Rotating sponsor boards** (LED style): every 6 s each board flips to the next sponsor (**CodeJam 16**, **IBM**, **Sheffield Thursday**), with neighboring boards showing different sponsors, all on a uniform white background. Sponsors are a list under **Stadium Builder → Board Ads** (logo, text, size, optional circle crop). Logos are in `Assets/Replay/Textures/`; the CodeJam logo was rendered from its SVG.
 - Sunny-afternoon lighting with the stand shadow across the pitch, procedural sky, haze, post-processing (ACES, bloom, vignette) and MSAA.
-- The broadcast camera sits on a gantry at the front of the main stand.
+- The broadcast camera sits on a gantry at the front of the main stand. It follows a smoothed play position (0.6 s smoothing, max 18 m/s, falling back to the players when the ball is lost), so a stray ball detection can't swing it to the other end.
+- **Shadow Strength** (0.4) controls how dark the stand's shadow across the pitch is.
 
 Almost everything is tunable on the `Replay` object's Inspector: Data cleanup, Body motion, Goalkeepers, Stadium Builder (colors, crowd, boards, sun, fog), and Use Fitted Flights.
 
@@ -131,11 +138,11 @@ These are minor polish items. Everything works, but they're worth tuning:
 - **Contact alignment** is good on average (median 0.03 m) but a few kicks are still about 0.6 m off, and actions by estimated (off-camera) players can't be aligned as precisely.
 - **Off-camera player estimates** (first version) need tuning: hold time, team-follow amount, how readily tracks are joined (a wrong join can make an estimate glide somewhere odd), and how see-through estimates are.
 - **Faster gaits:** there are no running or sprint clips yet, so the jog plays up to 1.6× faster above about 2.4 m/s. Add `Running` / `Fast Run` and re-run **Setup Animated Players**.
-- **Backpedaling and sidestepping** rarely show, because players face their direction of travel above 1.2 m/s.
+- **Character realism:** players are Y Bot mannequins. Swapping in textured Mixamo human characters (same rig, so all animations carry over) is the next visual upgrade.
+- **Camera smoothing** values (0.6 s, 18 m/s) haven't been tuned by eye on every clip yet.
 - **Headers** are wired up but haven't been seen yet, since no clip so far has a flight ending above 1.2 m.
 - **Data side:** keepers sometimes switch IDs (#22/#23 in match 2), camera calibration coasts most frames, and Flip Y is still needed. These are noted in "Notes for the CV side".
 
 ## Next up
 - The tweaks above, then a side panel for formations and player ratings from the analysis model.
 - A standalone build and a backup demo video.
-- Side panel for formations and player ratings from the analysis model, a standalone build, and a backup demo video.
