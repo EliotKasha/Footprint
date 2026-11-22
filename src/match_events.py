@@ -55,6 +55,125 @@ def segments(frames):
     return segs
 
 
+UNTRUSTED_FIT = 0.08        # line fit below this: the calibration is wrong whatever else is true
+SUSPECT_FIT = 0.3           # below this, also wrong if only a handful of players land on the pitch
+SUSPECT_MAX_PLAYERS = 5
+
+
+def distrust_calibration(frames):
+    """Camera angles the pitch model wasn't made for (a low camera behind the goal, close-ups,
+    celebrations) still produce a calibration from a few landmarks, but it is garbage: the projected
+    pitch lines miss the real ones (line fit near 0) and nearly everyone lands off the pitch. Those
+    frames are marked view=false with no players or ball, so Unity hides them instead of drawing nonsense.
+    Returns the number of frames marked."""
+    n = 0
+    for f in frames:
+        fit = f.get("line_fit")
+        if not f["view"] or fit is None:
+            continue
+        if fit < UNTRUSTED_FIT or (fit < SUSPECT_FIT and len(f["players"]) <= SUSPECT_MAX_PLAYERS):
+            f["view"] = False
+            f["untrusted"] = True
+            f["players"] = []
+            f["ball"] = None
+            f.pop("ball_interp", None)
+            n += 1
+    # a few lone "good" frames inside an untrusted stretch (no lines to check them against) would make
+    # the replay flicker: hide those too
+    k, N = 0, len(frames)
+    while k < N:
+        if frames[k]["view"] and k > 0 and frames[k - 1].get("untrusted"):
+            j = k
+            while j < N and frames[j]["view"]:
+                j += 1
+            if j < N and frames[j].get("untrusted") and j - k <= 10:
+                for i in range(k, j):
+                    f = frames[i]
+                    f["view"], f["untrusted"], f["players"], f["ball"] = False, True, [], None
+                    f.pop("ball_interp", None)
+                    n += 1
+            k = j
+        else:
+            k += 1
+    return n
+
+
+ISLAND_MAX_SPEED = 6.0      # m/s: a false ball barely moves
+
+
+def remove_ball_islands(frames, fps, max_island_s=0.6, search_s=2.0, vmax=40.0):
+    """A short run of ball sightings far away from where the ball is just before and just after it, so far
+    that getting there and back would take more than any struck ball can do (40 m/s), is a false
+    detection: a boot, a sock, a spare ball by the corner flag. The detector can lock onto one for
+    several frames in a row, and since those frames agree with each other they used to count as solid
+    (and handed possession to whoever stood there). Removed, along with frames interpolated from it.
+    Returns the number of islands removed."""
+    n = len(frames)
+    seg_of = {}
+    for si, sg in enumerate(segments(frames)):
+        for k in sg:
+            seg_of[k] = si
+    removed = 0
+    for _ in range(5):
+        real = [k for k in range(n) if k in seg_of and frames[k].get("ball") is not None
+                and not frames[k].get("ball_interp")]
+        # runs of sightings that move at a believable speed among themselves
+        runs, cur = [], []
+        for k in real:
+            if cur:
+                j = cur[-1]
+                d = np.linalg.norm(np.array(frames[k]["ball"][:2]) - np.array(frames[j]["ball"][:2]))
+                if seg_of[k] != seg_of[j] or k - j > int(0.3 * fps) or d * fps / (k - j) > vmax:
+                    runs.append(cur)
+                    cur = []
+            cur.append(k)
+        if cur:
+            runs.append(cur)
+        changed = False
+        # where the ball really is before / after a candidate: the nearest run of 2+ sightings
+        # (one-frame strays in between don't count as anchors)
+        anchors = [ri for ri, r in enumerate(runs) if len(r) >= 2]
+        for ri, run in enumerate(runs):
+            if (run[-1] - run[0]) / fps > max_island_s or len(run) < 3:
+                continue  # (single stray frames are left to the later checks)
+            # false balls are things that sit still (a boot, a spare ball); a ball in the air also looks
+            # far away on the ground map, but it keeps moving fast, so it is never treated as an island
+            if len(run) >= 2:
+                P = np.array([frames[k]["ball"][:2] for k in run])
+                if np.linalg.norm(P[-1] - P[0]) * fps / (run[-1] - run[0]) > ISLAND_MAX_SPEED:
+                    continue
+            before = [a for a in anchors if a < ri]
+            after = [b for b in anchors if b > ri]
+            if not before or not after:
+                continue
+            a_run, b_run = runs[before[-1]], runs[after[0]]
+            ka, kb = a_run[-1], b_run[0]
+            if frames[ka].get("ball") is None or frames[kb].get("ball") is None or \
+                    frames[run[0]].get("ball") is None:
+                continue  # (cleared earlier in this pass)
+            if seg_of[ka] != seg_of[run[0]] or seg_of[kb] != seg_of[run[0]] or (kb - ka) / fps > search_s:
+                continue
+            A, B = (np.array(frames[k]["ball"][:2]) for k in (ka, kb))
+            R0, R1 = np.array(frames[run[0]]["ball"][:2]), np.array(frames[run[-1]]["ball"][:2])
+            v_in = np.linalg.norm(R0 - A) * fps / (run[0] - ka)
+            v_out = np.linalg.norm(B - R1) * fps / (kb - run[-1])
+            v_skip = np.linalg.norm(B - A) * fps / (kb - ka)
+            if v_in > vmax and v_out > vmax and v_skip <= GROUND_BALL_MAX:
+                lo, hi = run[0], run[-1]
+                while lo - 1 > ka and frames[lo - 1].get("ball_interp"):
+                    lo -= 1  # positions interpolated towards the island go too
+                while hi + 1 < kb and frames[hi + 1].get("ball_interp"):
+                    hi += 1
+                for k in range(lo, hi + 1):
+                    frames[k]["ball"] = None
+                    frames[k].pop("ball_interp", None)
+                removed += 1
+                changed = True
+        if not changed:
+            break
+    return removed
+
+
 def ball_xy(f):
     b = f.get("ball")
     return None if b is None else np.array(b[:2], dtype=float)
@@ -935,6 +1054,38 @@ def clean_ball(frames, fps, max_flight_s=4.5):
                 agree += 1
         if agree >= 2:
             reliable.add(k)
+    # A hard shot along the grass goes faster than GROUND_BALL_MAX (a 110 km/h shot is 30 m/s), so the
+    # check above blanked the middle of shots and the ball "jumped" to the goal. Sightings that lie on a
+    # straight line at a constant speed (<= 40 m/s) over at least 4 frames are a struck ball: reliable.
+    shot, shot_fit = set(), {}
+    win_s = max(3, int(round(0.2 * fps)))
+    for i, k in enumerate(real_set):
+        if k in reliable:
+            continue
+        nb = [j for j in real_set[max(0, i - 6):i + 7] if abs(j - k) <= win_s and seg_of[j] == seg_of[k]]
+        for lo_i in range(len(nb)):
+            for hi_i in range(len(nb) - 1, lo_i + 2, -1):
+                grp = nb[lo_i:hi_i + 1]
+                if k not in grp or len(grp) < 4:
+                    continue
+                ts = np.array(grp, float) / fps
+                P = np.array([pos[j] for j in grp])
+                A = np.c_[ts, np.ones_like(ts)]
+                coef, *_ = np.linalg.lstsq(A, P, rcond=None)
+                res = np.linalg.norm(A @ coef - P, axis=1).max()
+                speed = float(np.linalg.norm(coef[0]))
+                if res <= 1.0 and GROUND_BALL_MAX < speed <= 40.0:
+                    shot.update(grp)
+                    for j, q in zip(grp, A @ coef):  # onto the fitted line: removes calibration noise
+                        if j not in shot_fit:
+                            shot_fit[j] = q
+                    break
+            if k in shot:
+                break
+    reliable |= shot
+    for j, q in shot_fit.items():
+        pos[j] = q
+        frames[j]["ball"] = [round(float(q[0]), 2), round(float(q[1]), 2)] + list(frames[j]["ball"][2:3])
     # fitted flights' end points count as reliable anchors too (the ball is on the grass there)
     rel = sorted(reliable)
     flights = []
@@ -963,7 +1114,7 @@ def clean_ball(frames, fps, max_flight_s=4.5):
             flights.append({"t_takeoff": frames[k0]["t"], "t_land": frames[k1]["t"], "max_height": round(peak, 2),
                             "start": [round(float(p0[0]), 2), round(float(p0[1]), 2)],
                             "land": [round(float(p1[0]), 2), round(float(p1[1]), 2)], "method": "estimated"})
-        elif T <= 1.0 and across <= GROUND_BALL_MAX * 1.4:
+        elif T <= 1.0 and (across <= GROUND_BALL_MAX * 1.4 or (k0 in shot and k1 in shot and across <= 40.0)):
             for j in range(k0 + 1, k1):  # short gap / wobble on the ground: straight line
                 xy = p0 + (p1 - p0) * (j - k0) / (k1 - k0)
                 frames[j]["ball"] = [round(float(xy[0]), 2), round(float(xy[1]), 2), 0.0]
@@ -991,7 +1142,7 @@ def clean_ball(frames, fps, max_flight_s=4.5):
                 continue  # (one of them was just blanked in this pass)
             pa, pb = (np.array((list(frames[j]["ball"]) + [0.0])[:3], float) for j in (a_, b_))
             if np.linalg.norm(pb - pa) * fps / (b_ - a_) > 40.0:
-                rank = lambda k: (k in reliable) * 2 + bool(frames[k].get("ball_air"))
+                rank = lambda k: bool(frames[k].get("ball_fit")) * 4 + (k in reliable) * 2 + bool(frames[k].get("ball_air"))
                 victim = b_ if rank(b_) <= rank(a_) else a_
                 frames[victim]["ball"] = None
                 frames[victim].pop("ball_air", None)
@@ -1053,6 +1204,32 @@ def smooth_ball(frames, fps, seconds=0.15, max_fill=3):
         for k, p in zip(run, out):
             z = frames[k]["ball"][2] if len(frames[k]["ball"]) > 2 else 0.0
             frames[k]["ball"] = [round(float(p[0]), 2), round(float(p[1]), 2), z]
+
+
+def final_speed_check(frames, fps, vmax=40.0):
+    """Last pass, after smoothing: no shown step faster than vmax. Of the two frames, the one that is
+    not part of a fitted arc is hidden (repeated until none are left). Returns frames hidden."""
+    n, hidden = len(frames), 0
+    gap_max = max(2, int(round(0.3 * fps)))
+    for _ in range(100):
+        shown = [k for k in range(n) if frames[k]["view"] and frames[k].get("ball") is not None]
+        bad = False
+        for a_, b_ in zip(shown[:-1], shown[1:]):
+            if b_ - a_ > gap_max or not all(frames[j]["view"] for j in range(a_, b_ + 1)):
+                continue
+            if frames[a_].get("ball") is None or frames[b_].get("ball") is None:
+                continue
+            pa, pb = (np.array((list(frames[j]["ball"]) + [0.0])[:3], float) for j in (a_, b_))
+            if np.linalg.norm(pb - pa) * fps / (b_ - a_) > vmax:
+                victim = a_ if frames[b_].get("ball_fit") and not frames[a_].get("ball_fit") else b_
+                frames[victim]["ball"] = None
+                for key in ("ball_air", "ball_est", "ball_interp"):
+                    frames[victim].pop(key, None)
+                hidden += 1
+                bad = True
+        if not bad:
+            break
+    return hidden
 
 
 def build_events(frames, fps, spells, flights, a, loose=()):
@@ -1195,6 +1372,12 @@ def main():
     with open(a.json) as fh:
         data = json.load(fh)
     frames, fps = data["frames"], data["fps"]
+    n_bad = distrust_calibration(frames)
+    if n_bad:
+        print(f"untrusted calibration (camera angle the pitch model can't handle): {n_bad} frames hidden")
+    n_isl = remove_ball_islands(frames, fps)
+    if n_isl:
+        print(f"false ball detections removed (far from the ball before and after): {n_isl}")
 
     owner, spells = find_possession(frames, fps, a)
     flights, loose, method, bridges = {}, [], "flight time", []
@@ -1240,6 +1423,7 @@ def main():
         hp.pop("_start", None)
     estimated = clean_ball(frames, fps)
     smooth_ball(frames, fps)
+    final_speed_check(frames, fps)
     events = build_events(frames, fps, spells, flights, a, loose)
     # passes whose ball was in the air only by the estimate: mark them aerial too
     for e in events:
