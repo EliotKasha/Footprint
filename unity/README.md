@@ -13,12 +13,12 @@ The CV pipeline outputs `match_events.json` (players, ball, possession, passes a
 
 > Note: the menu **Soccer Replay → Create Replay Scene and Play** rebuilds `Replay.unity` from scratch with default settings (no animated players, Flip Y off). Don't use it on the existing scene.
 
-**Controls:** Space play/pause · ←/→ skip 1 s · `[` `]` speed (0.25×–4×) · `1` `2` `3` broadcast / top-down / follow-ball camera · `4` free camera · `L` load match · `Tab` stats panel · `R` restart.
+**Controls:** Space play/pause · ←/→ skip 1 s · `[` `]` speed (0.25×–4×) · `1` `2` `3` broadcast / top-down / follow-ball camera · `4` free camera · `L` load match · `Tab` stats panel · `F` formation lines · `R` restart.
 
 **Free camera** (`4` or the **Free** button): hold the right mouse button and move the mouse to look, WASD to fly, E/Q up/down, Shift for 3× speed, mouse wheel to change fly speed (shown in the bottom bar). Works while paused.
 The bar at the bottom has the same controls plus a timeline slider. The top-left panel is a live event feed.
 
-**Stats overlay** (from the analysis teammates' `PitchOverlay` scripts): once a match is loaded, a scoreboard bar sits across the top over the stands: team names, score (`– : –` until set), clock, possession, and each team's measured shape chip (`DEFENDING 4-5-1`, or `–` when not measured). **STATS** on the bar, **Stats** in the bottom bar, or `Tab` opens the full panel: goal threat (placeholder estimate), passes, and team shape (width, depth, line height). **Formation lines** (pink) link neighbouring tracked players in each team's line and thicken with passes between them; toggle the **Formation Link Renderer** component on `Stats Overlay → FormationLinks`.
+**Stats overlay** (from the analysis teammates' `PitchOverlay` scripts): once a match is loaded, a scoreboard bar sits across the top over the stands: team names, score (`– : –` until set), clock, possession, and each team's measured shape chip (`DEFENDING 4-5-1`, or `–` when not measured). **STATS** on the bar, **Stats** in the bottom bar, or `Tab` opens the full panel: goal threat (placeholder estimate), passes, and team shape (width, depth, line height). **Formation lines** (pink) link neighbouring tracked players in each team's line and thicken with passes between them; turn them on or off with the **Lines** button in the bottom bar or `F` (default: **Show Formation Lines** on the `Replay` object).
 - The overlay reads the same file you load and follows the replay clock (pause, scrub, speed, loop).
 - Measured shapes come from a `<match file>.analysis.json` next to the match file, made by formation-ml's `export_for_unity.py`. It's only used if its `source_clip` is that same file. Team names come from it too; otherwise the teams are called White and Black.
 - The overlay reads the raw JSON, not the replay's cleaned data, so a phantom pass the replay dropped can still count in the panel.
@@ -162,7 +162,7 @@ These are minor polish items. Everything works, but they're worth tuning:
 - **Off-camera player estimates** (first version) need tuning: hold time, team-follow amount, how readily tracks are joined (a wrong join can make an estimate glide somewhere odd), and how see-through estimates are.
 - **Faster gaits:** there are no running or sprint clips yet, so the jog plays up to 1.6× faster above about 2.4 m/s. Add `Running` / `Fast Run` and re-run **Setup Animated Players**.
 - **One character for everyone:** all players share one face and hair; adding a second Mixamo character would add variety. The white kit reads light grey in the stand's shadow.
-- **Stats overlay:** shape chips show `–` until analysis files exist for our clips (`match_events_v5/v6.analysis.json`), and clips need ~10 s of each phase for a shape. Score needs `SetScore`; goal threat is a placeholder. Both teams' formation lines are the same pink, and with only part of a team on camera the lines can zigzag. There's no in-app toggle for the lines yet.
+- **Stats overlay:** shape chips show `–` until analysis files exist for our clips (`match_events_v5/v6.analysis.json`), and clips need ~10 s of each phase for a shape. Score needs `SetScore`; goal threat is a placeholder. Both teams' formation lines are the same pink, and with only part of a team on camera the lines can zigzag.
 - **Goal nets in the .exe** were reported looking different from the Editor; not yet diagnosed.
 - **Camera smoothing** values (0.6 s, 18 m/s) haven't been tuned by eye on every clip yet.
 - **Headers** are wired up but haven't been seen yet, since no clip so far has a flight ending above 1.2 m.

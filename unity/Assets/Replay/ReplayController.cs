@@ -8,7 +8,7 @@ namespace SoccerReplay
 {
     /// <summary>
     /// Loads a tracking JSON from StreamingAssets and replays it in 3D.
-    /// Controls: Space play/pause · Left/Right skip 1s · [ ] speed · 1/2/3 camera, 4 free camera · L load match · R restart
+    /// Controls: Space play/pause · Left/Right skip 1s · [ ] speed · 1/2/3 camera, 4 free camera · L load match · F formation lines · R restart
     /// </summary>
     public class ReplayController : MonoBehaviour
     {
@@ -1070,17 +1070,36 @@ namespace SoccerReplay
         [Header("Stats overlay")]
         [Tooltip("The PitchOverlay MatchOverlay in the scene (scoreboard bar + STATS panel). Optional")]
         public PitchOverlay.MatchOverlay matchOverlay;
+        [Tooltip("Show the pink formation lines on the pitch (toggle in the app with the Lines button or F)")]
+        public bool showFormationLines = true;
+        bool overlayVisible;
+
+        /// <summary>Turn the formation lines on or off (Lines button / F key).</summary>
+        public void ToggleFormationLines()
+        {
+            showFormationLines = !showFormationLines;
+            ApplyFormationLinesVisibility();
+        }
+
+        /// <summary>The lines' object is active only while a match is loaded and the lines are switched on.
+        /// Switching the whole object off hides every line at once (unticking the component would freeze them).</summary>
+        void ApplyFormationLinesVisibility()
+        {
+            if (matchOverlay == null || matchOverlay.links == null) return;
+            matchOverlay.links.gameObject.SetActive(overlayVisible && showFormationLines);
+        }
 
         /// <summary>Show or hide the overlay's UI and pitch lines (hidden until a match is loaded).</summary>
         void SetOverlayVisible(bool visible)
         {
+            overlayVisible = visible;
             if (matchOverlay == null) return;
             // Hide the UI with a style rather than switching its object off: re-enabling a UIDocument rebuilds
             // its visual tree, which would throw away the bar the StatsPanel built at startup
             var doc = matchOverlay.panel != null ? matchOverlay.panel.GetComponent<UnityEngine.UIElements.UIDocument>() : null;
             if (doc != null && doc.rootVisualElement != null)
                 doc.rootVisualElement.style.display = visible ? UnityEngine.UIElements.DisplayStyle.Flex : UnityEngine.UIElements.DisplayStyle.None;
-            if (matchOverlay.links != null) matchOverlay.links.gameObject.SetActive(visible);
+            ApplyFormationLinesVisibility();
         }
 
         /// <summary>Give the overlay the same file the replay is showing.</summary>
@@ -1143,6 +1162,7 @@ namespace SoccerReplay
             if (kb.digit3Key.wasPressedThisFrame) cameraMode = CameraMode.FollowBall;
             if (kb.digit4Key.wasPressedThisFrame) EnterFreeCamera();
             if (kb.lKey.wasPressedThisFrame) OpenMatchDialog();
+            if (kb.fKey.wasPressedThisFrame) ToggleFormationLines();
         }
 
         public void Seek(float t)
@@ -1502,6 +1522,8 @@ namespace SoccerReplay
             if (GUILayout.Toggle(cameraMode == CameraMode.FollowBall, "Follow ball", "Button", GUILayout.Width(85))) cameraMode = CameraMode.FollowBall;
             if (GUILayout.Toggle(cameraMode == CameraMode.Free, "Free", "Button", GUILayout.Width(60)) && cameraMode != CameraMode.Free) EnterFreeCamera();
             if (matchOverlay != null && GUILayout.Button("Stats", GUILayout.Width(60))) matchOverlay.ToggleStats();
+            if (matchOverlay != null && matchOverlay.links != null &&
+                GUILayout.Toggle(showFormationLines, "Lines", "Button", GUILayout.Width(60)) != showFormationLines) ToggleFormationLines();
             if (cameraMode == CameraMode.Free)
                 GUILayout.Label($"  Right-drag look · WASD move · E/Q up/down · Shift fast · wheel speed ({freeMoveSpeed:F0} m/s)");
             GUILayout.FlexibleSpace();
