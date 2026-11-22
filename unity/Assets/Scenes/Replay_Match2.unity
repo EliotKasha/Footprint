@@ -294,6 +294,10 @@ MonoBehaviour:
   panel: {fileID: 1282402064}
   links: {fileID: 323819970}
   renderDelay: 0
+  liveShapes: 1
+  shapeWindow: 20
+  shapeMinMoments: 9
+  preferAnalysisFile: 0
 --- !u!1 &299367092
 GameObject:
   m_ObjectHideFlags: 0
@@ -645,12 +649,47 @@ MonoBehaviour:
   - name: IBM
     logo: {fileID: 2800000, guid: 1a6c4aea32303d049842d6049b36867f, type: 3}
     text: 
-    background: {r: 1, g: 1, b: 1, a: 1}
+    background: {r: 0, g: 0, b: 0, a: 1}
     textColor: {r: 0.12, g: 0.44, b: 0.76, a: 1}
     circularCrop: 0
     logoHeight: 0.85
+  - name: Tower Research Capital
+    logo: {fileID: 2800000, guid: 124ba6074deb4e84c8a7070a07142038, type: 3}
+    text: 
+    background: {r: 0, g: 0, b: 0, a: 1}
+    textColor: {r: 1, g: 1, b: 1, a: 1}
+    circularCrop: 0
+    logoHeight: 0.95
+  - name: 1Password
+    logo: {fileID: 2800000, guid: c278357d53933bd4a88c92c56d21b754, type: 3}
+    text: 
+    background: {r: 0, g: 0, b: 0, a: 1}
+    textColor: {r: 1, g: 1, b: 1, a: 1}
+    circularCrop: 0
+    logoHeight: 0.6
+  - name: Brim
+    logo: {fileID: 2800000, guid: 6d1b092c4caeef34195e0bc8495db91b, type: 3}
+    text: 
+    background: {r: 0, g: 0, b: 0, a: 1}
+    textColor: {r: 1, g: 1, b: 1, a: 1}
+    circularCrop: 0
+    logoHeight: 0.7
+  - name: Energie3R
+    logo: {fileID: 2800000, guid: fa72f31d91feca14e9f349d5dc3dc46f, type: 3}
+    text: 
+    background: {r: 0, g: 0, b: 0, a: 1}
+    textColor: {r: 1, g: 1, b: 1, a: 1}
+    circularCrop: 0
+    logoHeight: 0.85
+  - name: Lovable
+    logo: {fileID: 2800000, guid: 26f783d6a3ba2d3489617ecb9784774b, type: 3}
+    text: 
+    background: {r: 0, g: 0, b: 0, a: 1}
+    textColor: {r: 1, g: 1, b: 1, a: 1}
+    circularCrop: 0
+    logoHeight: 0.6
   uniformAdBackground: 1
-  adBoardColor: {r: 1, g: 1, b: 1, a: 1}
+  adBoardColor: {r: 0, g: 0, b: 0, a: 1}
   rotateAds: 1
   adRotateSeconds: 6
   adFlipSeconds: 0.4
@@ -847,6 +886,7 @@ MonoBehaviour:
   cameraMode: 0
   ballDiameter: 0.4
   matchOverlay: {fileID: 258575256}
+  showFormationLines: 1
 --- !u!4 &1939742397
 Transform:
   m_ObjectHideFlags: 0
