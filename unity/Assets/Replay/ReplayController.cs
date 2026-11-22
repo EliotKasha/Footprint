@@ -8,11 +8,18 @@ namespace SoccerReplay
 {
     /// <summary>
     /// Loads a tracking JSON from StreamingAssets and replays it in 3D.
-    /// Controls: Space play/pause · Left/Right skip 1s · [ ] speed · 1/2/3 camera · R restart
+    /// Controls: Space play/pause · Left/Right skip 1s · [ ] speed · 1/2/3 camera, 4 free camera · R restart
     /// </summary>
     public class ReplayController : MonoBehaviour
     {
-        public enum CameraMode { Broadcast, TopDown, FollowBall }
+        public enum CameraMode { Broadcast, TopDown, FollowBall, Free }
+
+        [Header("Free camera (key 4)")]
+        [Tooltip("Fly speed (m/s); mouse wheel changes it while flying, Shift triples it")]
+        public float freeMoveSpeed = 12f;
+        [Tooltip("Degrees of turn per pixel of mouse movement (hold the right mouse button to look)")]
+        public float freeLookSensitivity = 0.15f;
+        float freeYaw, freePitch;
 
         [Header("Data")]
         [Tooltip("Path inside Assets/StreamingAssets")]
@@ -36,7 +43,15 @@ namespace SoccerReplay
         [Tooltip("Longest gap (seconds) a player is interpolated across before being hidden")]
         public float playerMaxGap = 0.4f;
         [Tooltip("Longest gap (seconds) the ball is interpolated across before being hidden")]
-        public float ballMaxGap = 1.0f;
+        public float ballMaxGap = 5.0f;
+        [Tooltip("Ball movement faster than this (m/s) is treated as a false detection and removed")]
+        public float ballMaxSpeed = 40f;
+        [Tooltip("When the ball isn't detected but a player owns it, place it at their feet")]
+        public bool fillBallFromOwner = true;
+        [Tooltip("Drop passes/touches that don't fit the cleaned ball path (phantom passes)")]
+        public bool dropImplausibleEvents = true;
+        [Tooltip("Lobs are drawn no higher than this × what gravity allows for their flight time (1 = strictly physical)")]
+        [Range(1f, 4f)] public float lobGravityCap = 2f;
         [Tooltip("During fitted ball flights (ball_flights), draw the ball on the smooth arc instead of frame-by-frame points")]
         public bool useFittedFlights = true;
 
@@ -183,6 +198,14 @@ namespace SoccerReplay
         bool snapKeepers = true;
         public bool showLabels = true;
 
+        [Header("Camera")]
+        [Tooltip("Seconds the camera takes to settle on where play is (higher = calmer)")]
+        public float cameraFocusSmoothing = 0.6f;
+        [Tooltip("Fastest the camera's focus point may travel (m/s), so it can't whip across the pitch")]
+        public float cameraFocusMaxSpeed = 18f;
+        Vector2 cameraFocus, cameraFocusVel;
+        bool cameraFocusInit;
+
         [Header("Playback")]
         public float speed = 1f;
         public bool loop = true;
@@ -223,7 +246,9 @@ namespace SoccerReplay
             return null;
         }
         const int PassLinePoints = 32;
-        const float BallRadius = 0.25f;
+        [Tooltip("Displayed ball diameter (m). A real ball is 0.22 m; slightly enlarged so it reads from the broadcast camera")]
+        public float ballDiameter = 0.4f;
+        float BallRadius => ballDiameter * 0.5f;
 
         static readonly float[] Speeds = { 0.25f, 0.5f, 1f, 2f, 4f };
 
@@ -239,6 +264,10 @@ namespace SoccerReplay
                     smoothWindow = smoothWindow,
                     maxPlayerSpeed = maxPlayerSpeed,
                     correctCameraShifts = correctCameraShifts,
+                    ballMaxSpeed = ballMaxSpeed,
+                    fillBallFromOwner = fillBallFromOwner,
+                    dropImplausibleEvents = dropImplausibleEvents,
+                    lobGravityCap = lobGravityCap,
                 };
                 data = MatchReplayData.FromJson(File.ReadAllText(path), origin, flipY, minTrackSamples, smoothRadius, clean);
             }
@@ -255,6 +284,9 @@ namespace SoccerReplay
                       $"{data.ball.Count} ball samples, origin={(data.cornerOrigin ? "corner" : "center")}");
             Debug.Log($"[Replay] Cleanup: {data.cameraShiftsCorrected} camera-jump frames corrected, " +
                       $"{data.spikesRemoved} glitch samples removed, {data.idSwapsSplit} ID swaps split");
+            Debug.Log($"[Replay] Ball cleanup: {data.ballOutliersRemoved} false detections removed, " +
+                      $"{data.ballSamplesFilled} gap samples filled from the player on the ball, {data.eventsDropped} phantom events dropped; " +
+                      $"lobs: {data.flights.Count} arcs ({data.flightsAdded} added for aerial passes, {data.flightsCapped} height-capped)");
 
             bool kits = useKitColors && data.hasKitColors;
             team0Color = kits ? data.kitColors[0] : homeColor;
@@ -334,7 +366,7 @@ namespace SoccerReplay
 
             var ballMat = PitchBuilder.MakeMaterial(Color.white);
             ballGo = PitchBuilder.Primitive(PrimitiveType.Sphere, "Ball", transform, ballMat).transform;
-            ballGo.localScale = Vector3.one * BallRadius * 2f; // real ball is 0.22m; enlarged so it reads from a distance
+            ballGo.localScale = Vector3.one * ballDiameter;
             ballGo.gameObject.SetActive(false);
 
             // Shadow on the grass under the ball, so height is readable
@@ -862,7 +894,9 @@ namespace SoccerReplay
                     k.vel = Vector2.Lerp(k.vel, inst, 1f - Mathf.Exp(-6f * dt));
                 }
                 k.prevDisplayPos = k.displayPos;
-                var keeperFace = ApplyAction(k.body, k.actions, out var keeperNudge);
+                // Keepers always face the ball (they shuffle and backpedal rather than turn their back on play);
+                // only their own actions (catch, kicks) override this
+                var keeperFace = ApplyAction(k.body, k.actions, out var keeperNudge) ?? ball;
                 k.body.UpdateMotion(k.displayPos + keeperNudge, k.vel, ball, 1f, dt, snapKeepers, bodyMotion, keeperFace);
 
                 var c = k.color;
@@ -914,6 +948,7 @@ namespace SoccerReplay
             if (kb.digit1Key.wasPressedThisFrame) cameraMode = CameraMode.Broadcast;
             if (kb.digit2Key.wasPressedThisFrame) cameraMode = CameraMode.TopDown;
             if (kb.digit3Key.wasPressedThisFrame) cameraMode = CameraMode.FollowBall;
+            if (kb.digit4Key.wasPressedThisFrame) EnterFreeCamera();
         }
 
         public void Seek(float t)
@@ -960,6 +995,13 @@ namespace SoccerReplay
                 // When the file has fitted flights, they are the authority on when the ball is airborne:
                 // between flights it's on the ground (frame heights there come from gap-filling and conflict with the fits)
                 ballHeightNow = useFittedFlights && data.flights.Count > 0 ? 0f : data.ball.HeightAt(time);
+                ballVisible = true;
+            }
+            else if (data.ball.Count > 0 && time > data.ball.End && BallInGoal(data.ball.positions[data.ball.Count - 1]))
+            {
+                // Last seen in the net (a goal): leave it resting there instead of vanishing
+                lastBall = data.ball.positions[data.ball.Count - 1];
+                ballHeightNow = 0f;
                 ballVisible = true;
             }
             else ballVisible = false;
@@ -1033,7 +1075,9 @@ namespace SoccerReplay
                 var a = new Vector3(pass.start[0], 0.1f, pass.start[1]);
                 var b = new Vector3(pass.end[0], 0.1f, pass.end[1]);
                 bool lofted = pass.aerial || pass.type == "aerial_ball";
-                float peak = lofted ? Mathf.Max(0.5f, pass.max_height) : 0f;
+                // Same (gravity-capped) height as the ball's own arc, so the drawn path matches the ball
+                var arcFlight = data.FlightAt(0.5f * (pass.t_start + pass.t_end));
+                float peak = !lofted ? 0f : arcFlight != null && arcFlight.drawHeight >= 0f ? arcFlight.drawHeight : Mathf.Max(0.5f, pass.max_height);
                 for (int i = 0; i < PassLinePoints; i++)
                 {
                     float u = i / (float)(PassLinePoints - 1);
@@ -1051,14 +1095,100 @@ namespace SoccerReplay
             }
         }
 
+        /// <summary>True if a position is inside one of the goals (past the goal line, between the posts).</summary>
+        bool BallInGoal(Vector2 p) => Mathf.Abs(p.x) > data.length / 2f - 0.3f && Mathf.Abs(p.x) < data.length / 2f + 3f && Mathf.Abs(p.y) < 3.66f + 1f;
+
+        /// <summary>Where play is: the ball when it's visible, otherwise the middle of the visible players.</summary>
+        Vector2 PlayFocusTarget()
+        {
+            if (ballVisible) return lastBall;
+            Vector2 sum = Vector2.zero; int n = 0;
+            foreach (var id in identities) if (id.body.Active && id.real && !id.referee) { sum += id.displayPos; n++; }
+            foreach (var (track, body) in players) if (body.Active && !track.referee) { var p = body.root.localPosition; sum += new Vector2(p.x, p.z); n++; }
+            return n > 0 ? sum / n : cameraFocus;
+        }
+
+        /// <summary>
+        /// Smoothed, speed-limited camera focus: follows play calmly, and a brief wrong ball position can
+        /// only nudge it a little instead of swinging the camera to the other end of the pitch.
+        /// </summary>
+        void UpdateCameraFocus(bool snap)
+        {
+            var target = PlayFocusTarget();
+            if (snap || !cameraFocusInit) { cameraFocus = target; cameraFocusVel = Vector2.zero; cameraFocusInit = true; return; }
+            float dt = Time.deltaTime;
+            if (dt <= 0f) return;
+            cameraFocus = Vector2.SmoothDamp(cameraFocus, target, ref cameraFocusVel, cameraFocusSmoothing, cameraFocusMaxSpeed, dt);
+        }
+
+        /// <summary>Switch to the free camera, starting from wherever the camera is now.</summary>
+        void EnterFreeCamera()
+        {
+            if (cam == null) return;
+            var e = cam.transform.eulerAngles;
+            freeYaw = e.y;
+            freePitch = e.x > 180f ? e.x - 360f : e.x;
+            cameraMode = CameraMode.Free;
+        }
+
+        /// <summary>
+        /// Free-fly camera: hold the right mouse button to look, WASD to move, E / Q up / down,
+        /// Shift for speed, mouse wheel to change fly speed. Works while paused (uses real time).
+        /// </summary>
+        void UpdateFreeCamera()
+        {
+            var kb = Keyboard.current;
+            var mouse = Mouse.current;
+            float dt = Time.unscaledDeltaTime;
+            if (mouse != null)
+            {
+                if (mouse.rightButton.isPressed)
+                {
+                    var d = mouse.delta.ReadValue();
+                    freeYaw += d.x * freeLookSensitivity;
+                    freePitch = Mathf.Clamp(freePitch - d.y * freeLookSensitivity, -89f, 89f);
+                }
+                float scroll = mouse.scroll.ReadValue().y;
+                if (Mathf.Abs(scroll) > 0.01f) freeMoveSpeed = Mathf.Clamp(freeMoveSpeed * (scroll > 0f ? 1.15f : 1f / 1.15f), 1f, 80f);
+            }
+            cam.transform.rotation = Quaternion.Euler(freePitch, freeYaw, 0f);
+
+            if (kb != null)
+            {
+                Vector3 move = Vector3.zero;
+                var t = cam.transform;
+                if (kb.wKey.isPressed) move += t.forward;
+                if (kb.sKey.isPressed) move -= t.forward;
+                if (kb.dKey.isPressed) move += t.right;
+                if (kb.aKey.isPressed) move -= t.right;
+                if (kb.eKey.isPressed) move += Vector3.up;
+                if (kb.qKey.isPressed) move -= Vector3.up;
+                float spd = freeMoveSpeed * (kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed ? 3f : 1f);
+                if (move.sqrMagnitude > 0f) t.position += move.normalized * spd * dt;
+                if (t.position.y < 0.3f) t.position = new Vector3(t.position.x, 0.3f, t.position.z); // stay above the grass
+            }
+        }
+
         void LateUpdate()
         {
             if (data == null || cam == null) return;
+            UpdateCameraFocus(false);
+            if (cameraMode == CameraMode.Free)
+            {
+                UpdateFreeCamera();
+                BillboardLabels();
+                return;
+            }
             GetCameraTarget(out var pos, out var look);
             float k = 1f - Mathf.Exp(-3f * Time.deltaTime);
             cam.transform.position = Vector3.Lerp(cam.transform.position, pos, k);
             var targetRot = Quaternion.LookRotation(look - pos);
             cam.transform.rotation = Quaternion.Slerp(cam.transform.rotation, targetRot, k);
+            BillboardLabels();
+        }
+
+        void BillboardLabels()
+        {
 
             // Billboard labels toward the camera
             foreach (var (_, body) in players)
@@ -1071,6 +1201,7 @@ namespace SoccerReplay
 
         void SnapCamera()
         {
+            UpdateCameraFocus(true);
             GetCameraTarget(out var pos, out var look);
             cam.transform.position = pos;
             cam.transform.rotation = Quaternion.LookRotation(look - pos);
@@ -1078,7 +1209,7 @@ namespace SoccerReplay
 
         void GetCameraTarget(out Vector3 pos, out Vector3 look)
         {
-            Vector2 focus = lastBall;
+            Vector2 focus = cameraFocus;
             float hw = data.width / 2f;
             switch (cameraMode)
             {
@@ -1172,6 +1303,9 @@ namespace SoccerReplay
             if (GUILayout.Toggle(cameraMode == CameraMode.Broadcast, "Broadcast", "Button", GUILayout.Width(85))) cameraMode = CameraMode.Broadcast;
             if (GUILayout.Toggle(cameraMode == CameraMode.TopDown, "Top-down", "Button", GUILayout.Width(85))) cameraMode = CameraMode.TopDown;
             if (GUILayout.Toggle(cameraMode == CameraMode.FollowBall, "Follow ball", "Button", GUILayout.Width(85))) cameraMode = CameraMode.FollowBall;
+            if (GUILayout.Toggle(cameraMode == CameraMode.Free, "Free", "Button", GUILayout.Width(60)) && cameraMode != CameraMode.Free) EnterFreeCamera();
+            if (cameraMode == CameraMode.Free)
+                GUILayout.Label($"  Right-drag look · WASD move · E/Q up/down · Shift fast · wheel speed ({freeMoveSpeed:F0} m/s)");
             GUILayout.FlexibleSpace();
             int keepersReal = keepers.FindAll(k => k.realWeight > 0.5f).Count;
             string keeperInfo = keepers.Count > 0 ? $"   Keepers: {keepersReal} tracked, {keepers.Count - keepersReal} estimated" : "";
