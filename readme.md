@@ -142,6 +142,87 @@ Minimap next to the source video.
 
 ---
 
+### Stage 4: Unity replay (match_events.json --> 3D replay)
+
+A Unity 6 project (`unity/`) replays `match_events.json` in a 3D stadium with animated players, a ball with real height, and a live event feed. Nothing is written back; Unity is purely a viewer.
+
+#### Running it
+**Windows (recommended):** download the latest Windows build from the [Releases page on GitHub](../../releases), unzip it and run the executable. No Unity install is needed. Click **Load match…** (or press `L`) and pick `out/<video name>/match_events.json` from anywhere on your computer.
+
+**Mac / Linux, or to modify the project:**
+1. Install Unity 6.6 (`6000.6.10f1`) via Unity Hub and open `unity/` as a project.
+2. Open `Assets/Scenes/Replay.unity` and press Play. The empty stadium appears with a "No match loaded" panel.
+3. Click **Load match…** (or press `L`) and pick `match_events.json`.
+
+`match_events.json` is the only file the replay needs. You can load a different match at any time, and the dialog reopens in the last folder used.
+
+**Controls**
+
+| Key | Action |
+|---|---|
+| `Space` | Play / pause |
+| `←` / `→` | Skip 1 s |
+| `[` `]` | Speed (0.25×–4×) |
+| `1` `2` `3` | Broadcast / top-down / follow-ball camera |
+| `4` | Free camera (hold right mouse to look, `WASD` fly, `E`/`Q` up/down, `Shift` 3× speed, wheel changes speed) |
+| `L` / `R` | Load match / restart |
+
+The bar at the bottom has the same controls plus a timeline slider; the top-left panel is a live event feed.
+
+**Scenes** (same scripts, different clips; settings like Flip Y and sponsor boards are saved per scene). *Load Match On Start* on the Replay object plays the scene's Match File straight away; files for that go in `Assets/StreamingAssets/matches/`.
+
+| Scene | Match file | Clip |
+|---|---|---|
+| `Replay.unity` | `matches/match_events_v5.json` | 60 s, play in the west half |
+| `Replay_Match2.unity` | `matches/match_events_v6.json` | 30 s, play around the east penalty area |
+
+#### 4a. Loading and cleanup (MatchData.cs)
+- **Format handling:** reads any frame rate; positions are in meters, and center or corner origin is detected (or read from `pitch.origin`). Unknown fields (`H`, `calib`, `stats`, ...) are ignored. Nulls in ID fields are handled.
+- **Flip Y:** mirrors the pitch top to bottom. It is on for the current data because the CV y axis points the other way.
+- **Calibration jumps:** when many players shift together, the jump is cancelled and eased out over about 2 s.
+- **Glitches and ID swaps:** one-frame glitches are removed, and an ID jumping to a different person is split into separate tracks instead of drawing someone zooming across the pitch.
+- **Smoothing:** frame-rate-independent (±0.2 s), with fades when tracks start or stop and short dropouts interpolated. On the latest data, 99% of displayed movement is under 6.6 m/s and under 0.03% exceeds 12 m/s (raw data had ~33 m/s spikes).
+- **Goalkeeper validation:** each team's goal is decided from the keeper with the most data. A track labeled goalkeeper that averages more than 25 m from its own goal is treated as a misclassified outfield player.
+- **Ball cleanup (no teleporting):** false detections are removed by keeping the longest chain of positions a real ball could travel between (up to 40 m/s across gaps). Gaps are filled from the player on the ball when that fits, "passes" that only existed because of a false detection are dropped, the ball stays visible through gaps of up to 5 s, and it rests in the net after a goal.
+- **Ball flights:** during a `ball_flights` entry the ball follows the smooth arc (straight ground track plus a parabola) instead of noisy per-frame points. Each arc is joined onto the real ball path at takeoff and landing, aerial passes without a fitted flight get an arc, and arc height is capped at twice what gravity allows for the flight time. It starts on the grass and ends at `end_height` (0 for a landing, above 0 for a header or volley).
+
+#### 4b. Off-camera players
+Broadcast footage only shows part of the pitch, so players drop in and out of the data. The replay keeps them on the pitch:
+- **Tracks are joined into people:** a same-team track that starts within 8 s of another ending, close enough to have run there unseen, is treated as the same person. On the current clip, 60 tracks become 42 people.
+- **Estimated players** are drawn see-through with no number. Between two sightings they glide from the last-seen to the next-seen position. Before the first or after the last sighting they stay near that spot and move with their team's overall shape, for up to 8 s.
+- **Cap:** at most 10 outfield players per team are shown. When there are more estimates, the ones closest in time to a real sighting win, and changes fade instead of popping.
+- **Goalkeepers:** solid when tracked; semi-transparent ("GK (est.)") when off camera, staying near where they were last or next seen at walking speed. A keeper the camera never sees is estimated from the ball's position.
+
+#### 4c. Players (PlayerBody.cs, MatchActions.cs)
+- **Look:** animated Mixamo Y Bots tinted with the real kit colors from `teams.kit_hex` (falls back to red and blue), with a contrasting chest stripe. Keepers and the referee get their own colors. Players are labeled with their tracking ID (referees "REF"). Untick **Use Animated Players** to fall back to capsules.
+- **Locomotion:** a 2D freeform-directional blend tree on body-relative velocity (idle, walk at 1.68 m/s, 8-direction jog at ~2.4 m/s). Animation speed follows ground speed and replay time, so it freezes on pause and scales with playback speed. Root motion is off, so players stay exactly on their tracked positions.
+- **Facing:** below 3.5 m/s players face the ball; when running they face where they're going, turned about 25% toward the ball. On clip 1, 95% of players face within 60° of the ball. Keepers always face the ball except during their own catches and kicks.
+- **Actions from match events:** passes play a kick (standing, running strike, or long kick for aerial or 30 m+ passes; keepers use pass or drop kick), touches play a receive (keepers catch), and a ball arriving at 1.2 m or higher plays a header. Actions run on a separate animator layer driven by replay time, so they stay correct when pausing, scrubbing or changing speed.
+- **Contact alignment:** each clip's contact moment and limb position are measured at startup, and the action starts early enough to connect at the event time. Around contact the player is shifted slightly (capped at 1.5 m) so the striking foot lands on the ball, using the mirrored clip when the ball is on the other foot's side. On the 60 s clip, foot-to-ball distance at contact went from 0.71 m on average to 0.12 m (median 0.03 m).
+
+#### 4d. Ball, events and stadium
+- **Ball:** 0.4 m across (adjustable), with height, a ground shadow and a possession ring under the player on the ball (`owner`).
+- **Pass arcs:** white = completed, red = failed, amber = loose lofted ball (`aerial_ball`), matching the check video in Stage 3.
+- **Stadium:** a two-tier bowl built in code to fit the 105 × 68 m pitch, with ~13k instanced crowd figures in team colors (including an away section), rotating LED-style sponsor boards (configurable list under Stadium Builder → Board Ads), and sunny-afternoon lighting with the stand shadow across the pitch, procedural sky, haze and post-processing.
+- **Broadcast camera:** sits on a gantry at the front of the main stand and follows a smoothed play position (0.6 s smoothing, max 18 m/s, falling back to the players when the ball is lost), so a stray detection can't swing it to the other end.
+
+Almost everything is tunable on the Replay object's Inspector: Data cleanup, Body motion, Goalkeepers, Off-camera players, Actions, Stadium Builder, and Use Fitted Flights. Soccer Replay → **Setup Animated Players** rebuilds clip import settings, the blend tree and the keeper variant.
+
+#### Unity code layout
+| Path | What |
+|---|---|
+| `Assets/Replay/MatchData.cs` | JSON classes, loading, coordinate handling, tracking cleanup, tracks, ball flights |
+| `Assets/Replay/ReplayController.cs` | Playback, cameras, players, keepers, ball, possession, pass arcs, UI |
+| `Assets/Replay/PlayerBody.cs` | Player body: animated Y Bot or capsule, facing, lean, blend-tree driving, action playback |
+| `Assets/Replay/MatchActions.cs` | Action clips, event → action scheduler, contact alignment and mirroring |
+| `Assets/Replay/PitchBuilder.cs` / `StadiumBuilder.cs` | Pitch, markings, goals; stands, roof, crowd, ad boards, lighting |
+| `Assets/Replay/Editor/` | Editor menus: scene setup and animated-player setup |
+| `Assets/Characters/` | Soccer Game Pack (Y Bot, X Bot, Mixamo clips) and locomotion controllers |
+| `Assets/StandaloneFileBrowser/` | UnityStandaloneFileBrowser 1.2 (MIT): native open-file dialog on Windows, Mac and Linux |
+| `Assets/StreamingAssets/matches/` | CV outputs used for testing (`match_events_v5.json` is the latest) |
+
+---
+
 ## Data formatting
 
 ### Coords
