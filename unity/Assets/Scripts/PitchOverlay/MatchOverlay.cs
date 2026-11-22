@@ -18,6 +18,17 @@ namespace PitchOverlay
         public FormationLinkRenderer links;
         public float renderDelay = 0.25f;               // must equal PlayerMotionDriver.renderDelay
 
+        // [REPLAY] Formation chips measured live in Unity (LiveShapes = C# port of formation-ml's shape.py),
+        // so only match_events.json is needed. Votes over the last `shapeWindow` seconds of the replay.
+        [Header("Live team shape")]
+        public bool liveShapes = true;
+        public float shapeWindow = 20f;                 // seconds of play the shape is measured over (0 = whole clip so far)
+        [Tooltip("Usable moments (3 per second) needed before a shape is shown. formation-ml uses 20 for a whole clip; " +
+                 "fewer shows shapes sooner, marked low confidence (faded chip) until 8 s have been seen.")]
+        public int shapeMinMoments = 9;
+        public bool preferAnalysisFile = false;         // true: use a matching .analysis.json (whole-clip shapes) when present
+        public LiveShapes Shapes { get; private set; }
+
         public MatchAnalytics Analytics { get; private set; }
 
         void Start()
@@ -32,7 +43,7 @@ namespace PitchOverlay
         {
             string analysisPath = Path.ChangeExtension(path, null) + ".analysis.json";
             string analysis = File.Exists(analysisPath) ? File.ReadAllText(analysisPath) : null;
-            if (analysis == null) Debug.Log("[MatchOverlay] No team-shape file at " + analysisPath + " (shapes will show '-').");
+            if (analysis == null) Debug.Log("[MatchOverlay] No team-shape file at " + analysisPath + " (team shapes are measured live).");
             // [REPLAY] only use the shapes if they were measured from this same clip (the file records its source)
             if (analysis != null)
             {
@@ -54,9 +65,12 @@ namespace PitchOverlay
         {
             var match = JsonConvert.DeserializeObject<MatchFile>(matchText);
             Analytics = new MatchAnalytics(match);
+            bool useFile = analysisText != null && (preferAnalysisFile || !liveShapes);
+            Shapes = liveShapes && !useFile ? new LiveShapes(match) : null;             // [REPLAY]
             if (analysisText != null)                                                   // [FORMATION-ML]
             {
-                var shapes = ShapeAnalysis.Apply(analysisText, Analytics);
+                var shapes = useFile ? ShapeAnalysis.Apply(analysisText, Analytics)
+                                     : JsonConvert.DeserializeObject<ShapeAnalysisFile>(analysisText);   // names only
                 ShapeTeam a, b;
                 if (panel && panel.HasDefaultNames && shapes != null && shapes.teams != null &&
                     shapes.teams.TryGetValue("0", out a) && shapes.teams.TryGetValue("1", out b))
@@ -71,6 +85,7 @@ namespace PitchOverlay
             if (Analytics == null) return;
             // Same moment in time the 3D players are being drawn at (they render renderDelay in the past).
             Analytics.AdvanceTo(PlayerMotionDriver.Clock - renderDelay);
+            if (Shapes != null) Shapes.Apply(Analytics, Analytics.time, shapeWindow, shapeMinMoments);   // [REPLAY]
         }
 
         // --- hooks for the rest of the project ---
