@@ -5,7 +5,13 @@
 
 ## Demo
 
+### 2d
+
 ![Demo](assets/demo_2d.gif)
+
+### 3d
+
+![Demo](assets/demo_3d.png)
 
 ---
 
